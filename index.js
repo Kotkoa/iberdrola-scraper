@@ -23,7 +23,6 @@ const { chromium } = require('playwright')
 
   const page = await context.newPage()
 
-  // Anti-detection patches
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false })
     Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] })
@@ -40,7 +39,6 @@ const { chromium } = require('playwright')
         : originalQuery(p)
   })
 
-  // Go to page
   await page.goto(
     'https://www.iberdrola.es/en/electric-mobility/recharge-outside-the-house',
     { waitUntil: 'domcontentloaded', timeout: 60000 }
@@ -52,7 +50,6 @@ const { chromium } = require('playwright')
   await page.screenshot({ path: 'loaded-page.png', fullPage: true })
   console.log('PAGE LOADED')
 
-  // Accept cookies
   try {
     await page.waitForSelector('#onetrust-accept-btn-handler', {
       timeout: 5000,
@@ -64,21 +61,16 @@ const { chromium } = require('playwright')
     console.log('NO COOKIES BANNER')
   }
 
-  // Wait input
   await page.waitForSelector('#ship-address', { timeout: 30000 })
-  console.log('INPUT FOUND')
 
-  // Enter address
   const address = 'Passeig Cervantes, 10, Pego, Spain'
   await page.fill('#ship-address', address)
 
   await page.waitForTimeout(600)
 
-  // Wait Google autocomplete items
   await page.waitForSelector('.pac-item', { timeout: 60000 })
   console.log('AUTOCOMPLETE VISIBLE')
 
-  // FORCE JS CLICK — guaranteed working
   await page.evaluate(() => {
     const el = document.querySelector('.pac-item')
     if (el) {
