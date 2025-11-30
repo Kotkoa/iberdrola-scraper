@@ -68,21 +68,20 @@ const { chromium } = require('playwright')
 
   await page.waitForTimeout(600)
 
-  await page.waitForSelector('.pac-item', { timeout: 60000 })
-  console.log('AUTOCOMPLETE VISIBLE')
+  // wait for Google Places suggestions and click the most relevant one
+  const suggestions = page.locator('.pac-item')
+  await suggestions.first().waitFor({ state: 'visible', timeout: 7000 })
 
-  await page.evaluate(() => {
-    const el = document.querySelector('.pac-item')
-    if (el) {
-      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
-      el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    }
-  })
+  const matchingSuggestion = suggestions.filter({ hasText: 'Passeig Cervantes' })
+  if ((await matchingSuggestion.count()) > 0) {
+    await matchingSuggestion.first().click()
+  } else {
+    await suggestions.first().click()
+  }
 
   console.log('AUTOCOMPLETE SELECTED')
 
-  await page.waitForTimeout(800)
+  await page.waitForTimeout(1800)
   await page.screenshot({ path: 'autocomplete-clicked.png' })
 
   console.log('DONE')
