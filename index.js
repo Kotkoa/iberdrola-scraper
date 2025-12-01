@@ -157,7 +157,6 @@ const supabase = createClient(
     console.log('FAILED TO PARSE POINT DETAILS RESPONSE', error)
   }
 
-
   // Save to Supabase
   try {
     const detailJson = await detailResponse.json()
@@ -177,6 +176,38 @@ const supabase = createClient(
     }
   } catch (e) {
     console.error('FAILED TO SAVE JSON TO SUPABASE', e)
+  }
+
+  // Save parsed fields into charge_logs_parsed
+  const parsedDetailJson = await detailResponse.json()
+  try {
+    const { data, error } = await supabase.from('charge_logs_parsed').insert({
+      cp_id: parsedDetailJson?.entidad?.[0]?.cpId ?? null,
+      cp_name: parsedDetailJson?.entidad?.[0]?.locationData?.cuprName ?? null,
+      schedule:
+        parsedDetailJson?.entidad?.[0]?.locationData?.scheduleType
+          ?.scheduleTypeDesc ?? null,
+
+      port1_status:
+        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[0]?.status?.statusCode ??
+        null,
+      port1_power_kw:
+        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[0]?.physicalSocket?.[0]
+          ?.maxPower ?? null,
+
+      port2_status:
+        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[1]?.status?.statusCode ??
+        null,
+      port2_power_kw:
+        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[1]?.physicalSocket?.[0]
+          ?.maxPower ?? null,
+
+      overall_status: parsedDetailJson?.entidad?.[0]?.cpStatus?.statusCode ?? null,
+    })
+
+    console.log('PARSED INSERT RESULT:', { data, error })
+  } catch (e) {
+    console.error('FAILED TO SAVE PARSED FIELDS', e)
   }
 
   console.log('DONE')
