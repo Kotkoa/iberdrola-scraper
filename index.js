@@ -45,10 +45,39 @@ const supabase = createClient(
         : originalQuery(p)
   })
 
-  await page.goto(
-    'https://www.iberdrola.es/en/electric-mobility/recharge-outside-the-house',
-    { waitUntil: 'domcontentloaded', timeout: 60000 }
-  )
+  page.on('requestfailed', (request) => {
+    console.error('REQUEST FAILED', {
+      url: request.url(),
+      method: request.method(),
+      error: request.failure()?.errorText,
+    })
+  })
+
+  let landingResponse
+  try {
+    landingResponse = await page.goto(
+      'https://www.iberdrola.es/en/electric-mobility/recharge-outside-the-house',
+      { waitUntil: 'domcontentloaded', timeout: 60000 }
+    )
+  } catch (error) {
+    console.error('NAVIGATION FAILED', error)
+    await browser.close()
+    throw error
+  }
+
+  if (!landingResponse) {
+    await browser.close()
+    throw new Error('Navigation did not return a response')
+  }
+
+  const landingStatus = landingResponse.status()
+  if (landingStatus >= 400) {
+    const statusText = landingResponse.statusText()
+    await browser.close()
+    throw new Error(
+      `Navigation failed with status ${landingStatus} ${statusText} for ${landingResponse.url()}`
+    )
+  }
 
   try {
     await page.waitForSelector('#onetrust-accept-btn-handler', {
