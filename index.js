@@ -157,7 +157,6 @@ const supabase = createClient(
     console.log('FAILED TO PARSE POINT DETAILS RESPONSE', error)
   }
 
-  const { createClient } = require('@supabase/supabase-js')
 
   // Save to Supabase
   try {
