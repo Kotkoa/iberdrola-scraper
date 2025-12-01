@@ -61,7 +61,30 @@ const supabase = createClient(
     console.log('NO COOKIES BANNER')
   }
 
-  await page.waitForSelector('#ship-address', { timeout: 30000 })
+  // Map widget is lazy-loaded and only renders the search input after scrolling it into view.
+  const waitForShipAddress = async () => {
+    const timeoutMs = 60000
+    const pollDelay = 400
+    const start = Date.now()
+
+    while (Date.now() - start < timeoutMs) {
+      const inputHandle = await page.$('#ship-address')
+      if (inputHandle) {
+        await inputHandle.scrollIntoViewIfNeeded()
+        return
+      }
+
+      await page.evaluate(() =>
+        window.scrollBy(0, Math.ceil(window.innerHeight * 0.8))
+      )
+      await page.waitForTimeout(pollDelay)
+    }
+
+    throw new Error('ship-address input did not become available')
+  }
+
+  await waitForShipAddress()
+  await page.waitForSelector('#ship-address', { timeout: 15000 })
 
   const address = 'Passeig Cervantes, 10, Pego, Spain'
   await page.click('#ship-address', { force: true })
