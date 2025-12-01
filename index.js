@@ -189,20 +189,30 @@ const supabase = createClient(
           ?.scheduleTypeDesc ?? null,
 
       port1_status:
-        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[0]?.status?.statusCode ??
-        null,
+        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[0]?.status
+          ?.statusCode ?? null,
       port1_power_kw:
         parsedDetailJson?.entidad?.[0]?.logicalSocket?.[0]?.physicalSocket?.[0]
           ?.maxPower ?? null,
+      port1_update_date:
+        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[0]?.status
+          ?.updateDate ?? null,
 
       port2_status:
-        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[1]?.status?.statusCode ??
-        null,
+        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[1]?.status
+          ?.statusCode ?? null,
       port2_power_kw:
         parsedDetailJson?.entidad?.[0]?.logicalSocket?.[1]?.physicalSocket?.[0]
           ?.maxPower ?? null,
+      port2_update_date:
+        parsedDetailJson?.entidad?.[0]?.logicalSocket?.[1]?.status
+          ?.updateDate ?? null,
 
-      overall_status: parsedDetailJson?.entidad?.[0]?.cpStatus?.statusCode ?? null,
+      overall_status:
+        parsedDetailJson?.entidad?.[0]?.cpStatus?.statusCode ?? null,
+
+      overall_update_date:
+        parsedDetailJson?.entidad?.[0]?.cpStatus?.updateDate ?? null,
     })
 
     console.log('PARSED INSERT RESULT:', { data, error })
