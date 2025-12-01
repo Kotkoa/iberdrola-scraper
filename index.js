@@ -159,10 +159,26 @@ const supabase = createClient(
 
   const { createClient } = require('@supabase/supabase-js')
 
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_KEY
-  )
+  // Save to Supabase
+  try {
+    const detailJson = await detailResponse.json()
+
+    console.log('INSERTING INTO SUPABASE...')
+
+    const { data, error } = await supabase.from('charge_logs').insert({
+      cp_id: detailJson?.entidad?.[0]?.cpId || null,
+      status: detailJson?.entidad?.[0]?.cpStatus?.statusCode || null,
+      full_json: detailJson,
+    })
+
+    console.log('SUPABASE RESULT:', { data, error })
+
+    if (error) {
+      console.error('SUPABASE ERROR:', error)
+    }
+  } catch (e) {
+    console.error('FAILED TO SAVE JSON TO SUPABASE', e)
+  }
 
   console.log('DONE')
 
