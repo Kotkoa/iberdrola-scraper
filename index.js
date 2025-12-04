@@ -14,6 +14,33 @@ const REFERER =
   'https://www.iberdrola.es/en/electric-mobility/recharge-outside-the-house'
 const ORIGIN = process.env.ORIGIN || 'https://www.iberdrola.es'
 
+const ENDPOINT =
+  'https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga'
+/**
+ * Build request body for Iberdrola API
+ * @param {number} cuprId
+ * @param {string} [language]
+ * @returns {{dto: {cuprId: number[]}, language: string}}
+ */
+const buildBody = (cuprId, language = 'en') => ({
+  dto: { cuprId: [cuprId] },
+  language,
+})
+
+/**
+ * Build request headers for Iberdrola API
+ * @returns {Record<string,string>}
+ */
+const buildHeaders = () => ({
+  'content-type': 'application/json',
+  accept: 'application/json, text/javascript, */*; q=0.01',
+  'accept-language': 'en-US,en;q=0.9',
+  referer: REFERER,
+  origin: ORIGIN,
+  'user-agent': USER_AGENT,
+  'x-requested-with': 'XMLHttpRequest',
+})
+
 /**
  * @typedef {Object} ScheduleType
  * @property {string|null} scheduleTypeDesc
@@ -80,66 +107,63 @@ const ORIGIN = process.env.ORIGIN || 'https://www.iberdrola.es'
  */
 
 /**
+ * Executes an async function with retry logic on failure.
+ * Uses exponential backoff: each retry waits delay * (attempt + 1) milliseconds.
+ * @template T
+ * @param {() => Promise<T>} fn - async function to execute
+ * @param {number} [attempts=3] - number of retry attempts (must be >= 1)
+ * @param {number} [delay=500] - base delay between retries in milliseconds
+ * @returns {Promise<T>} resolved value from fn on success
+ * @throws {Error} if all attempts are exhausted or fn throws
+ * @example
+ * const result = await withRetry(
+ *   () => fetch(url).then(r => r.json()),
+ *   3,
+ *   500
+ * )
+ */
+async function withRetry(fn, attempts = 3, delay = 500) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      console.error(`Attempt ${i + 1} failed`, err)
+      if (i === attempts - 1) throw err
+      await new Promise((r) => setTimeout(r, delay * (i + 1)))
+    }
+  }
+
+  throw new Error('withRetry: exhausted all attempts')
+}
+
+/**
  * Fetch charging point data from Iberdrola API
  * @param {number} cuprId - charging point ID
  * @param {number} attempts - number of retry attempts
  * @returns {Promise<IberdrolaResponse|null>}
  */
 async function fetchDatos(cuprId, attempts = 3) {
-  const body = { dto: { cuprId: [cuprId] }, language: 'en' }
+  const body = buildBody(cuprId)
+  const headers = buildHeaders()
 
-  const headers = {
-    'content-type': 'application/json',
-    accept: 'application/json, text/javascript, */*; q=0.01',
-    'accept-language': 'en-US,en;q=0.9',
-    referer: REFERER,
-    origin: ORIGIN,
-    'user-agent': USER_AGENT,
-    'x-requested-with': 'XMLHttpRequest',
-  }
-
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const res = await fetch(
-        'https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga',
-        {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-        }
-      )
-
-      console.log('HTTP STATUS:', res.status, res.statusText)
+  return withRetry(
+    async () => {
+      const res = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      })
 
       if (!res.ok) {
-        const txt = await res.text().catch(() => '<failed to read body>')
-        console.error('IBERDROLA RESPONSE NOT OK', {
-          attempt: i + 1,
-          status: res.status,
-          statusText: res.statusText,
-          body_snippet: txt.slice(0, 1000),
-        })
-
-        if (res.status === 403 && i < attempts - 1) {
-          await new Promise((r) => setTimeout(r, 1000 * (i + 1)))
-          continue
-        }
-        return null
+        const txt = await res.text()
+        throw new Error(`HTTP ${res.status}: ${txt.slice(0, 500)}`)
       }
 
-      const json = await res.json().catch((e) => {
-        console.error('FAILED TO PARSE JSON', e)
-        return null
-      })
-      return json
-    } catch (err) {
-      console.error('HTTP REQUEST FAILED', { attempt: i + 1, err })
-      if (i < attempts - 1)
-        await new Promise((r) => setTimeout(r, 500 * (i + 1)))
-    }
-  }
-
-  return null
+      return res.json()
+    },
+    3,
+    500
+  )
 }
 
 async function main() {
