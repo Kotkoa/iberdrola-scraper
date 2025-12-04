@@ -6,98 +6,114 @@ const SUPABASE_URL = process.env.SUPABASE_URL || ''
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 const CUPR_ID = 144569
+const USER_AGENT =
+  process.env.USER_AGENT ||
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+const REFERER =
+  process.env.REFERER ||
+  'https://www.iberdrola.es/en/electric-mobility/recharge-outside-the-house'
+const ORIGIN = process.env.ORIGIN || 'https://www.iberdrola.es'
+
+async function fetchDatos(cuprId, attempts = 3) {
+  const body = { dto: { cuprId: [cuprId] }, language: 'en' }
+
+  const headers = {
+    'content-type': 'application/json',
+    accept: 'application/json, text/javascript, */*; q=0.01',
+    'accept-language': 'en-US,en;q=0.9',
+    referer: REFERER,
+    origin: ORIGIN,
+    'user-agent': USER_AGENT,
+    'x-requested-with': 'XMLHttpRequest',
+  }
+
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(
+        'https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga',
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        }
+      )
+
+      console.log('HTTP STATUS:', res.status, res.statusText)
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '<failed to read body>')
+        console.error('IBERDROLA RESPONSE NOT OK', {
+          attempt: i + 1,
+          status: res.status,
+          statusText: res.statusText,
+          body_snippet: txt.slice(0, 1000),
+        })
+
+        if (res.status === 403 && i < attempts - 1) {
+          await new Promise((r) => setTimeout(r, 1000 * (i + 1)))
+          continue
+        }
+        return null
+      }
+
+      const json = await res.json().catch((e) => {
+        console.error('FAILED TO PARSE JSON', e)
+        return null
+      })
+      return json
+    } catch (err) {
+      console.error('HTTP REQUEST FAILED', { attempt: i + 1, err })
+      if (i < attempts - 1)
+        await new Promise((r) => setTimeout(r, 500 * (i + 1)))
+    }
+  }
+
+  return null
+}
 
 async function main() {
   console.log('START FETCH getDatosPuntoRecarga, cuprId =', CUPR_ID)
 
-  let detailJson = null
-
-  try {
-    const body = {
-      dto: {
-        cuprId: [CUPR_ID],
-      },
-      language: 'en',
-    }
-
-    const response = await fetch(
-      'https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga',
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      }
-    )
-
-    console.log('HTTP STATUS:', response.status, response.statusText)
-
-    if (!response.ok) {
-      console.error('IBERDROLA RESPONSE NOT OK', {
-        status: response.status,
-        statusText: response.statusText,
-      })
-      return
-    }
-
-    detailJson = await response.json()
-    console.log(
-      'POINT DETAILS RESPONSE RAW:',
-      JSON.stringify(detailJson, null, 2)
-    )
-  } catch (err) {
-    console.error('HTTP REQUEST FAILED', err)
+  const detailJson = await fetchDatos(CUPR_ID)
+  if (!detailJson) {
+    console.log('NO DETAIL JSON RECEIVED — skipping DB inserts')
     return
   }
 
   try {
     console.log('INSERTING INTO SUPABASE: charge_logs...')
-
     const first = detailJson?.entidad?.[0] ?? {}
-
     const { data, error } = await supabase.from('charge_logs').insert({
       cp_id: first?.cpId ?? null,
       status: first?.cpStatus?.statusCode ?? null,
       full_json: detailJson,
     })
-
     console.log('SUPABASE charge_logs RESULT:', { data, error })
-    if (error) {
-      console.error('SUPABASE ERROR (charge_logs):', error)
-    }
+    if (error) console.error('SUPABASE ERROR (charge_logs):', error)
   } catch (err) {
     console.error('FAILED TO SAVE INTO charge_logs', err)
   }
 
   try {
     console.log('INSERTING INTO SUPABASE: charge_logs_parsed...')
-
     const first = detailJson?.entidad?.[0] ?? {}
-
     const { data, error } = await supabase.from('charge_logs_parsed').insert({
       cp_id: first?.cpId ?? null,
       cp_name: first?.locationData?.cuprName ?? null,
       schedule: first?.locationData?.scheduleType?.scheduleTypeDesc ?? null,
-
       port1_status: first?.logicalSocket?.[0]?.status?.statusCode ?? null,
       port1_power_kw:
         first?.logicalSocket?.[0]?.physicalSocket?.[0]?.maxPower ?? null,
       port1_update_date: first?.logicalSocket?.[0]?.status?.updateDate ?? null,
-
       port2_status: first?.logicalSocket?.[1]?.status?.statusCode ?? null,
       port2_power_kw:
         first?.logicalSocket?.[1]?.physicalSocket?.[0]?.maxPower ?? null,
       port2_update_date: first?.logicalSocket?.[1]?.status?.updateDate ?? null,
-
       overall_status: first?.cpStatus?.statusCode ?? null,
       overall_update_date: first?.cpStatus?.updateDate ?? null,
     })
-
     console.log('SUPABASE charge_logs_parsed RESULT:', { data, error })
-    if (error) {
-      console.error('SUPABASE ERROR (charge_logs_parsed):', error)
-    }
+    if (error) console.error('SUPABASE ERROR (charge_logs_parsed):', error)
   } catch (err) {
     console.error('FAILED TO SAVE INTO charge_logs_parsed', err)
   }
