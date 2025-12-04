@@ -14,6 +14,77 @@ const REFERER =
   'https://www.iberdrola.es/en/electric-mobility/recharge-outside-the-house'
 const ORIGIN = process.env.ORIGIN || 'https://www.iberdrola.es'
 
+/**
+ * @typedef {Object} ScheduleType
+ * @property {string|null} scheduleTypeDesc
+ * @property {string|null} scheduleTypeId
+ */
+
+/**
+ * @typedef {Object} ChargingPointStatus
+ * @property {string|null} statusCode
+ * @property {string|null} updateDate
+ * @property {number} statusId
+ */
+
+/**
+ * @typedef {Object} SocketType
+ * @property {string|null} socketTypeId
+ * @property {string|null} socketName
+ */
+
+/**
+ * @typedef {Object} PhysicalSocket
+ * @property {number|null} maxPower
+ * @property {SocketType} socketType
+ * @property {string|null} status
+ * @property {number} physicalSocketId
+ */
+
+/**
+ * @typedef {Object} LogicalSocket
+ * @property {number} logicalSocketId
+ * @property {ChargingPointStatus|null} status
+ * @property {PhysicalSocket[]} physicalSocket
+ * @property {string|null} evseId
+ * @property {number} chargeSpeedId
+ */
+
+/**
+ * @typedef {Object} LocationData
+ * @property {string} cuprName
+ * @property {ScheduleType|null} scheduleType
+ * @property {number} cuprId
+ * @property {number} latitude
+ * @property {number} longitude
+ * @property {string|null} situationCode
+ */
+
+/**
+ * @typedef {Object} ChargingPoint
+ * @property {number} cpId
+ * @property {LocationData} locationData
+ * @property {LogicalSocket[]} logicalSocket
+ * @property {ChargingPointStatus} cpStatus
+ * @property {number} socketNum
+ * @property {boolean} advantageous
+ */
+
+/**
+ * @typedef {Object} IberdrolaResponse
+ * @property {ChargingPoint[]} entidad
+ * @property {boolean} seguro
+ * @property {string|null} errorAjax
+ * @property {any} errores
+ * @property {any} serviceException
+ */
+
+/**
+ * Fetch charging point data from Iberdrola API
+ * @param {number} cuprId - charging point ID
+ * @param {number} attempts - number of retry attempts
+ * @returns {Promise<IberdrolaResponse|null>}
+ */
 async function fetchDatos(cuprId, attempts = 3) {
   const body = { dto: { cuprId: [cuprId] }, language: 'en' }
 
@@ -89,7 +160,7 @@ async function main() {
       full_json: detailJson,
     })
     console.log('SUPABASE charge_logs RESULT:', { data, error })
-    if (error) console.error('SUPABASE ERROR (charge_logs):', error)
+    if (error) console.error('SUPABASE ERROR:', error)
   } catch (err) {
     console.error('FAILED TO SAVE INTO charge_logs', err)
   }
@@ -97,25 +168,29 @@ async function main() {
   try {
     console.log('INSERTING INTO SUPABASE: charge_logs_parsed...')
     const first = detailJson?.entidad?.[0] ?? {}
+
     const { data, error } = await supabase.from('charge_logs_parsed').insert({
       cp_id: first?.cpId ?? null,
       cp_name: first?.locationData?.cuprName ?? null,
       schedule: first?.locationData?.scheduleType?.scheduleTypeDesc ?? null,
+
       port1_status: first?.logicalSocket?.[0]?.status?.statusCode ?? null,
       port1_power_kw:
         first?.logicalSocket?.[0]?.physicalSocket?.[0]?.maxPower ?? null,
       port1_update_date: first?.logicalSocket?.[0]?.status?.updateDate ?? null,
+
       port2_status: first?.logicalSocket?.[1]?.status?.statusCode ?? null,
       port2_power_kw:
         first?.logicalSocket?.[1]?.physicalSocket?.[0]?.maxPower ?? null,
       port2_update_date: first?.logicalSocket?.[1]?.status?.updateDate ?? null,
+
       overall_status: first?.cpStatus?.statusCode ?? null,
       overall_update_date: first?.cpStatus?.updateDate ?? null,
     })
-    console.log('SUPABASE charge_logs_parsed RESULT:', { data, error })
-    if (error) console.error('SUPABASE ERROR (charge_logs_parsed):', error)
+
+    console.log('PARSED INSERT RESULT:', { data, error })
   } catch (err) {
-    console.error('FAILED TO SAVE INTO charge_logs_parsed', err)
+    console.error('FAILED TO SAVE PARSED FIELDS', err)
   }
 
   console.log('DONE')
