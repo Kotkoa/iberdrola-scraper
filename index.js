@@ -2,10 +2,10 @@
 const { chromium } = require('playwright')
 const { createClient } = require('@supabase/supabase-js')
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-)
+// Prefer service_role key for server-side writes. Falls back to SUPABASE_KEY if not provided.
+const SUPABASE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+const supabase = createClient(process.env.SUPABASE_URL, SUPABASE_KEY)
 
 ;(async () => {
   const browser = await chromium.launch({
