@@ -1,10 +1,5 @@
 const { createClient } = require('@supabase/supabase-js')
 
-const SUPABASE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || ''
-const SUPABASE_URL = process.env.SUPABASE_URL || ''
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
-
 /**
  * @typedef {Object} ScheduleType
  * @property {string|null} scheduleTypeDesc
@@ -69,6 +64,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
  * @property {any} errores
  * @property {any} serviceException
  */
+
+const SUPABASE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || ''
+const SUPABASE_URL = process.env.SUPABASE_URL || ''
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 /**
  * Parse and extract charging point data from Iberdrola response

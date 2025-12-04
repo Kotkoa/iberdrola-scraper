@@ -1,11 +1,5 @@
-const { createClient } = require('@supabase/supabase-js')
 const { fetchDatos } = require('./src/iberdrolaClient')
 const { saveRaw, saveParsed } = require('./src/supabaseService')
-
-const SUPABASE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || ''
-const SUPABASE_URL = process.env.SUPABASE_URL || ''
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 const CUPR_ID = 144569
 
