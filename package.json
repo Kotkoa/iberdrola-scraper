@@ -1,16 +1,19 @@
 {
   "name": "iberdrola-scraper",
   "version": "1.0.0",
-  "description": "",
+  "description": "Collect charging point data from Iberdrola API and store in Supabase",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "keywords": [],
+  "keywords": [
+    "iberdrola",
+    "scraper",
+    "charging-points"
+  ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
-    "@supabase/supabase-js": "^2.86.0",
-    "playwright": "^1.57.0"
+    "@supabase/supabase-js": "^2.86.0"
   }
 }

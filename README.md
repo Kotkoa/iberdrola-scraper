@@ -2,38 +2,29 @@
 
 ## Short description
 
-`iberdrola-scraper` is a small Node.js script that automates data collection for charging points from the Iberdrola website and stores results in a Supabase database. The script uses `playwright` to control a headless Chromium browser and `@supabase/supabase-js` to insert records into `charge_logs` and `charge_logs_parsed` tables.
+`iberdrola-scraper` is a small Node.js script that collects data for charging points from the Iberdrola API and stores results in a Supabase database. The script uses a direct HTTP POST request to fetch point details and persists both the raw JSON responses and a set of parsed fields for analysis.
 
 ## Detailed presentation
 
 Purpose:
 
-- Collect detailed information about charging points from Iberdrola's public page and persist both the raw JSON responses and a set of parsed fields for analysis.
+- Collect detailed information about charging points from Iberdrola's API endpoint and persist both the raw JSON responses and a set of parsed fields for analysis.
 
 Key files:
 
-- `index.js`: main executable — a Playwright script implementing navigation, address autocomplete, marker selection on the map, capturing the network response with point details, and inserting data into Supabase.
-- `package.json`: project metadata and dependencies (`playwright`, `@supabase/supabase-js`).
+- [`index.js`](index.js): main executable — a Node.js script implementing a direct HTTP POST request to `getDatosPuntoRecarga`, parsing the response, and inserting data into Supabase.
+- [`package.json`](package.json): project metadata and dependencies (`@supabase/supabase-js`).
 
 Architecture / data flow:
 
-- The script launches Chromium using Playwright.
-- It navigates to: `https://www.iberdrola.es/en/electric-mobility/recharge-outside-the-house`.
-- The script triggers Google Places autocomplete to search for an address, selects a map marker, and waits for the network response containing point details (URLs including `getDetallePunto` or `getDatosPuntoRecarga`).
+- The script makes a direct POST request to: `https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga`.
+- Passes a charging point ID (`cuprId`) in the request body.
 - The full JSON response is stored in `charge_logs`, and a set of parsed fields is inserted into `charge_logs_parsed`.
 
 Supabase tables (expected):
 
-- `charge_logs` — stores `cp_id`, `status`, `full_json` (raw API response). Add your DB schema screenshot manually.
+- `charge_logs` — stores `cp_id`, `status`, `full_json` (raw API response).
 - `charge_logs_parsed` — normalized columns: `cp_id`, `cp_name`, `schedule`, `port1_status`, `port1_power_kw`, `port1_update_date`, `port2_status`, `port2_power_kw`, `port2_update_date`, `overall_status`, `overall_update_date`.
-
-## DB screenshot placeholder
-
-Place your database screenshot at `docs/db-screenshot.png` and reference it here, for example:
-
-```
-![DB screenshot](docs/db-screenshot.png)
-```
 
 ## Installation and run
 
@@ -43,31 +34,34 @@ Place your database screenshot at `docs/db-screenshot.png` and reference it here
 npm install
 ```
 
-2. Install Playwright browsers (if needed):
-
-```bash
-npx playwright install chromium
-```
-
-3. Export environment variables (macOS / zsh):
+2. Export environment variables (macOS / zsh):
 
 ```bash
 export SUPABASE_URL="https://your-project.supabase.co"
 export SUPABASE_KEY="your-anon-or-service-role-key"
 ```
 
-4. Run the script:
+3. Run the script:
 
 ```bash
 node index.js
 ```
 
+## Configuration
+
+You can override defaults via environment variables:
+
+- `CUPR_ID` — charging point ID (default: `144569`)
+- `USER_AGENT` — custom User-Agent header
+- `REFERER` — custom Referer header
+- `ORIGIN` — custom Origin header
+- `SUPABASE_URL` — Supabase project URL
+- `SUPABASE_KEY` or `SUPABASE_SERVICE_ROLE_KEY` — Supabase API key
+
 ## Environment and stability notes
 
-- The script uses a specific Chromium launch channel (`channel: 'chrome'`). Ensure the channel is available or change it to the default.
-- Playwright may require browser installation via `npx playwright install`.
-- The scraper depends on page selectors (e.g. `#ship-address`, `.pac-item`, map marker selectors). Site changes may break the scraper — selectors or logic will require updates.
-- Timeouts and waits are conservative; increase values in `index.js` if you experience intermittent failures.
+- The script depends on Iberdrola's API endpoint remaining stable. Changes to the endpoint or response structure may require updates.
+- Retry logic with exponential backoff is included for transient failures.
 
 ## Security and secrets
 
@@ -75,11 +69,9 @@ node index.js
 
 ## Possible improvements
 
-- Add a CLI flag to iterate addresses or cover geographic areas.
+- Add a CLI flag or environment variable to iterate over multiple charging point IDs.
 - Export results to CSV/JSON locally as a backup alongside Supabase inserts.
-- Add tests or reproducible examples to improve parser stability.
-
-If you want, I can also add example SQL table definitions and a CI job for scheduled runs.
+- Add tests or validation for response structure.
 
 ## Author and license
 
