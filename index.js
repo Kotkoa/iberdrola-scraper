@@ -1,5 +1,9 @@
 const { fetchDatos } = require('./src/iberdrolaClient')
-const { saveRaw, saveParsed } = require('./src/supabaseService')
+const {
+  validateResponse,
+  saveRaw,
+  saveParsed,
+} = require('./src/supabaseService')
 
 const CUPR_ID = 144569
 
@@ -11,17 +15,42 @@ async function main() {
   console.log('START FETCH getDatosPuntoRecarga, cuprId =', CUPR_ID)
 
   const detailJson = await fetchDatos(CUPR_ID)
+
+  // Check that data is received
   if (!detailJson) {
-    console.log('NO DETAIL JSON RECEIVED — skipping DB inserts')
+    console.error('FETCH FAILED: no data received')
+    console.log('SKIPPING DB inserts')
+    process.exitCode = 1
     return
   }
 
-  await saveRaw(detailJson)
-  await saveParsed(detailJson)
+  // Validate response structure
+  const validation = validateResponse(detailJson)
+  if (!validation.valid) {
+    console.error('VALIDATION FAILED:', validation.reason)
+    console.log('SKIPPING DB inserts')
+    process.exitCode = 1
+    return
+  }
 
-  console.log('DONE')
+  const rawResult = await saveRaw(detailJson)
+  if (!rawResult.success) {
+    console.error('FAILED TO SAVE RAW DATA')
+    process.exitCode = 1
+  }
+
+  const parsedResult = await saveParsed(detailJson)
+  if (!parsedResult.success) {
+    console.error('FAILED TO SAVE PARSED DATA')
+    process.exitCode = 1
+  }
+
+  if (rawResult.success && parsedResult.success) {
+    console.log('DONE — all data saved successfully')
+  }
 }
 
 main().catch((err) => {
   console.error('UNHANDLED ERROR IN MAIN', err)
+  process.exitCode = 1
 })

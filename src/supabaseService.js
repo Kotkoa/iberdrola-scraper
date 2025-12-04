@@ -71,6 +71,41 @@ const SUPABASE_URL = process.env.SUPABASE_URL || ''
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 /**
+ * Validate Iberdrola response structure
+ * @param {IberdrolaResponse} detailJson
+ * @returns {{valid: boolean, reason: string|null}}
+ */
+function validateResponse(detailJson) {
+  if (!detailJson) {
+    return { valid: false, reason: 'Response is null or undefined' }
+  }
+
+  if (!Array.isArray(detailJson.entidad) || detailJson.entidad.length === 0) {
+    return { valid: false, reason: 'entidad array is empty or missing' }
+  }
+
+  const first = detailJson.entidad[0]
+
+  if (!first.cpId) {
+    return { valid: false, reason: 'cpId is missing or falsy' }
+  }
+
+  if (!first.locationData?.cuprName) {
+    return { valid: false, reason: 'locationData.cuprName is missing' }
+  }
+
+  if (!first.cpStatus?.statusCode) {
+    return { valid: false, reason: 'cpStatus.statusCode is missing' }
+  }
+
+  if (!Array.isArray(first.logicalSocket) || first.logicalSocket.length === 0) {
+    return { valid: false, reason: 'logicalSocket array is empty or missing' }
+  }
+
+  return { valid: true, reason: null }
+}
+
+/**
  * Parse and extract charging point data from Iberdrola response
  * @param {IberdrolaResponse} detailJson
  * @returns {{
@@ -182,4 +217,4 @@ async function saveParsed(detailJson) {
   }
 }
 
-module.exports = { parseEntidad, saveRaw, saveParsed }
+module.exports = { validateResponse, parseEntidad, saveRaw, saveParsed }
