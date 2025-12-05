@@ -12,8 +12,5 @@
     "charging-points"
   ],
   "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "@supabase/supabase-js": "^2.86.0"
-  }
+  "license": "MIT"
 }

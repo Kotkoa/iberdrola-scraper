@@ -1,4 +1,77 @@
-const { createClient } = require('@supabase/supabase-js')
+const SUPABASE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || ''
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '')
+const SUPABASE_REST_URL = SUPABASE_URL ? `${SUPABASE_URL}/rest/v1` : ''
+
+const SUPABASE_HEADERS = SUPABASE_KEY
+  ? {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Prefer: 'return=representation',
+    }
+  : null
+
+function getConfigError() {
+  if (!SUPABASE_REST_URL) {
+    return new Error('SUPABASE_URL is not configured')
+  }
+
+  if (!SUPABASE_HEADERS) {
+    return new Error('SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY is required')
+  }
+
+  return null
+}
+
+function safeJsonParse(text) {
+  try {
+    return JSON.parse(text)
+  } catch (err) {
+    return text
+  }
+}
+
+function truncateError(payload) {
+  if (payload == null) return 'No response body'
+  const str =
+    typeof payload === 'string' ? payload : JSON.stringify(payload).slice(0, 300)
+  return str.length > 300 ? `${str.slice(0, 297)}...` : str
+}
+
+async function insertRow(table, payload) {
+  const configError = getConfigError()
+  if (configError) {
+    return { data: null, error: configError }
+  }
+
+  const url = `${SUPABASE_REST_URL}/${table}`
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: SUPABASE_HEADERS,
+      body: JSON.stringify(payload),
+    })
+
+    const text = await res.text()
+    const parsed = text ? safeJsonParse(text) : null
+
+    if (!res.ok) {
+      return {
+        data: null,
+        error: new Error(
+          `Supabase REST error ${res.status}: ${truncateError(parsed ?? text)}`
+        ),
+      }
+    }
+
+    return { data: parsed, error: null }
+  } catch (error) {
+    return { data: null, error }
+  }
+}
 
 /**
  * @typedef {Object} ScheduleType
@@ -64,11 +137,6 @@ const { createClient } = require('@supabase/supabase-js')
  * @property {any} errores
  * @property {any} serviceException
  */
-
-const SUPABASE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || ''
-const SUPABASE_URL = process.env.SUPABASE_URL || ''
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 /**
  * Validate Iberdrola response structure
@@ -155,7 +223,7 @@ async function saveRaw(detailJson) {
     console.log('INSERTING INTO SUPABASE: charge_logs...')
 
     const first = detailJson?.entidad?.[0] ?? {}
-    const { data, error } = await supabase.from('charge_logs').insert({
+    const { data, error } = await insertRow('charge_logs', {
       cp_id: first?.cpId ?? null,
       status: first?.cpStatus?.statusCode ?? null,
       full_json: detailJson,
@@ -186,7 +254,7 @@ async function saveParsed(detailJson) {
 
     const parsed = parseEntidad(detailJson)
 
-    const { data, error } = await supabase.from('charge_logs_parsed').insert({
+    const { data, error } = await insertRow('charge_logs_parsed', {
       cp_id: parsed.cpId,
       cp_name: parsed.cpName,
       schedule: parsed.schedule,

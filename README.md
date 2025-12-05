@@ -2,7 +2,7 @@
 
 ## Short description
 
-`iberdrola-scraper` is a small Node.js script that collects data for charging points from the Iberdrola API and stores results in a Supabase database. The script uses a direct HTTP POST request to fetch point details and persists both the raw JSON responses and a set of parsed fields for analysis.
+`iberdrola-scraper` is a small Node.js script that collects data for charging points from the Iberdrola API and stores results in a Supabase database. The script uses direct HTTP POST requests (native `fetch`) both for Iberdrola and for Supabase's REST API, persisting the raw JSON responses and a set of parsed fields for analysis without the heavy Supabase SDK.
 
 ## Detailed presentation
 
@@ -13,11 +13,11 @@ Purpose:
 Key files:
 
 - [`index.js`](index.js): main executable — a Node.js script implementing a direct HTTP POST request to `getDatosPuntoRecarga`, parsing the response, and inserting data into Supabase.
-- [`package.json`](package.json): project metadata and dependencies (`@supabase/supabase-js`).
+- [`package.json`](package.json): project metadata (no runtime dependencies—Supabase is accessed via plain fetch requests).
 
 Architecture / data flow:
 
-- The script makes a direct POST request to: `https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga`.
+- The script makes direct POST requests to both the Iberdrola endpoint (`https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga`) and Supabase's REST API (`${SUPABASE_URL}/rest/v1/...`).
 - Passes a charging point ID (`cuprId`) in the request body.
 - The full JSON response is stored in `charge_logs`, and a set of parsed fields is inserted into `charge_logs_parsed`.
 
@@ -28,7 +28,7 @@ Supabase tables (expected):
 
 ## Installation and run
 
-1. Install dependencies:
+1. Install dependencies (optional, there are no external packages but this keeps `node_modules` consistent):
 
 ```bash
 npm install
