@@ -76,7 +76,7 @@ async function insertRow(table, payload) {
 /**
  * @typedef {Object} ScheduleType
  * @property {string|null} scheduleTypeDesc
- * @property {string|null} scheduleTypeId
+ * @property {string|null} scheduleCodeType
  */
 
 /**
@@ -93,11 +93,19 @@ async function insertRow(table, payload) {
  */
 
 /**
+ * @typedef {Object} AppliedRate
+ * @property {{price: number, typeRate: string, finalPrice: number}|null} recharge
+ * @property {{price: number, typeRate: string, finalPrice: number}|null} reservation
+ */
+
+/**
  * @typedef {Object} PhysicalSocket
  * @property {number|null} maxPower
- * @property {SocketType} socketType
- * @property {string|null} status
+ * @property {SocketType|null} socketType
+ * @property {ChargingPointStatus|null} status
  * @property {number} physicalSocketId
+ * @property {string|null} physicalSocketCode
+ * @property {AppliedRate|null} appliedRate
  */
 
 /**
@@ -110,6 +118,24 @@ async function insertRow(table, payload) {
  */
 
 /**
+ * @typedef {Object} CpAddress
+ * @property {string|null} streetName
+ * @property {string|null} streetNum
+ * @property {string|null} townName
+ * @property {string|null} regionName
+ */
+
+/**
+ * @typedef {Object} SupplyPointData
+ * @property {CpAddress|null} cpAddress
+ */
+
+/**
+ * @typedef {Object} Operator
+ * @property {string|null} operatorDesc
+ */
+
+/**
  * @typedef {Object} LocationData
  * @property {string} cuprName
  * @property {ScheduleType|null} scheduleType
@@ -117,6 +143,10 @@ async function insertRow(table, payload) {
  * @property {number} latitude
  * @property {number} longitude
  * @property {string|null} situationCode
+ * @property {SupplyPointData|null} supplyPointData
+ * @property {Operator|null} operator
+ * @property {boolean|null} cuprReservationIndicator
+ * @property {string|null} chargePointTypeCode
  */
 
 /**
@@ -127,6 +157,8 @@ async function insertRow(table, payload) {
  * @property {ChargingPointStatus} cpStatus
  * @property {number} socketNum
  * @property {boolean} advantageous
+ * @property {string|null} serialNumber
+ * @property {boolean|null} emergencyStopButtonPressed
  */
 
 /**
@@ -174,6 +206,24 @@ function validateResponse(detailJson) {
 }
 
 /**
+ * Build full address string from cpAddress components
+ * @param {CpAddress|null} cpAddress
+ * @returns {string|null}
+ */
+function buildFullAddress(cpAddress) {
+  if (!cpAddress) return null
+
+  const parts = [
+    cpAddress.streetName,
+    cpAddress.streetNum,
+    cpAddress.townName,
+    cpAddress.regionName,
+  ].filter(Boolean)
+
+  return parts.length > 0 ? parts.join(', ') : null
+}
+
+/**
  * Parse and extract charging point data from Iberdrola response
  * @param {IberdrolaResponse} detailJson
  * @returns {{
@@ -187,11 +237,24 @@ function validateResponse(detailJson) {
  *   port2PowerKw: number|null,
  *   port2UpdateDate: string|null,
  *   overallStatus: string|null,
- *   overallUpdateDate: string|null
+ *   overallUpdateDate: string|null,
+ *   addressFull: string|null,
+ *   port1PriceKwh: number|null,
+ *   port2PriceKwh: number|null,
+ *   port1SocketType: string|null,
+ *   port2SocketType: string|null,
+ *   emergencyStopPressed: boolean|null,
+ *   situationCode: string|null,
+ *   cpLatitude: number|null,
+ *   cpLongitude: number|null
  * }}
  */
 function parseEntidad(detailJson) {
   const first = detailJson?.entidad?.[0] ?? {}
+  const cpAddress = first?.locationData?.supplyPointData?.cpAddress ?? null
+
+  const port1Physical = first?.logicalSocket?.[0]?.physicalSocket?.[0] ?? null
+  const port2Physical = first?.logicalSocket?.[1]?.physicalSocket?.[0] ?? null
 
   return {
     cpId: first?.cpId ?? null,
@@ -199,17 +262,26 @@ function parseEntidad(detailJson) {
     schedule: first?.locationData?.scheduleType?.scheduleTypeDesc ?? null,
 
     port1Status: first?.logicalSocket?.[0]?.status?.statusCode ?? null,
-    port1PowerKw:
-      first?.logicalSocket?.[0]?.physicalSocket?.[0]?.maxPower ?? null,
+    port1PowerKw: port1Physical?.maxPower ?? null,
     port1UpdateDate: first?.logicalSocket?.[0]?.status?.updateDate ?? null,
 
     port2Status: first?.logicalSocket?.[1]?.status?.statusCode ?? null,
-    port2PowerKw:
-      first?.logicalSocket?.[1]?.physicalSocket?.[0]?.maxPower ?? null,
+    port2PowerKw: port2Physical?.maxPower ?? null,
     port2UpdateDate: first?.logicalSocket?.[1]?.status?.updateDate ?? null,
 
     overallStatus: first?.cpStatus?.statusCode ?? null,
     overallUpdateDate: first?.cpStatus?.updateDate ?? null,
+
+    // New fields
+    addressFull: buildFullAddress(cpAddress),
+    port1PriceKwh: port1Physical?.appliedRate?.recharge?.finalPrice ?? null,
+    port2PriceKwh: port2Physical?.appliedRate?.recharge?.finalPrice ?? null,
+    port1SocketType: port1Physical?.socketType?.socketName ?? null,
+    port2SocketType: port2Physical?.socketType?.socketName ?? null,
+    emergencyStopPressed: first?.emergencyStopButtonPressed ?? null,
+    situationCode: first?.locationData?.situationCode ?? null,
+    cpLatitude: first?.locationData?.latitude ?? null,
+    cpLongitude: first?.locationData?.longitude ?? null,
   }
 }
 
@@ -269,6 +341,17 @@ async function saveParsed(detailJson) {
 
       overall_status: parsed.overallStatus,
       overall_update_date: parsed.overallUpdateDate,
+
+      // New fields
+      address_full: parsed.addressFull,
+      port1_price_kwh: parsed.port1PriceKwh,
+      port2_price_kwh: parsed.port2PriceKwh,
+      port1_socket_type: parsed.port1SocketType,
+      port2_socket_type: parsed.port2SocketType,
+      emergency_stop_pressed: parsed.emergencyStopPressed,
+      situation_code: parsed.situationCode,
+      cp_latitude: parsed.cpLatitude,
+      cp_longitude: parsed.cpLongitude,
     })
 
     console.log('SUPABASE charge_logs_parsed RESULT:', { data, error })
@@ -285,4 +368,126 @@ async function saveParsed(detailJson) {
   }
 }
 
-module.exports = { validateResponse, parseEntidad, saveRaw, saveParsed }
+/**
+ * Upsert a row into Supabase table (insert or update on conflict)
+ * @param {string} table - table name
+ * @param {Object} payload - row data
+ * @param {string} onConflict - column name for conflict resolution
+ * @returns {Promise<{data: any, error: Error|null}>}
+ */
+async function upsertRow(table, payload, onConflict) {
+  const configError = getConfigError()
+  if (configError) {
+    return { data: null, error: configError }
+  }
+
+  const url = `${SUPABASE_REST_URL}/${table}?on_conflict=${onConflict}`
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...SUPABASE_HEADERS,
+        Prefer: 'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    const text = await res.text()
+    const parsed = text ? safeJsonParse(text) : null
+
+    if (!res.ok) {
+      return {
+        data: null,
+        error: new Error(
+          `Supabase REST error ${res.status}: ${truncateError(parsed ?? text)}`
+        ),
+      }
+    }
+
+    return { data: parsed, error: null }
+  } catch (error) {
+    return { data: null, error }
+  }
+}
+
+/**
+ * Build socket details object for station_metadata
+ * @param {PhysicalSocket|null} physicalSocket
+ * @param {LogicalSocket|null} logicalSocket
+ * @returns {Object|null}
+ */
+function buildSocketDetails(physicalSocket, logicalSocket) {
+  if (!physicalSocket) return null
+
+  return {
+    physicalSocketId: physicalSocket.physicalSocketId ?? null,
+    physicalSocketCode: physicalSocket.physicalSocketCode ?? null,
+    logicalSocketId: logicalSocket?.logicalSocketId ?? null,
+    socketTypeId: physicalSocket.socketType?.socketTypeId ?? null,
+    socketName: physicalSocket.socketType?.socketName ?? null,
+    maxPower: physicalSocket.maxPower ?? null,
+    evseId: logicalSocket?.evseId ?? null,
+    chargeSpeedId: logicalSocket?.chargeSpeedId ?? null,
+  }
+}
+
+/**
+ * Save or update station metadata in Supabase
+ * @param {IberdrolaResponse} detailJson
+ * @returns {Promise<{success: boolean, error: any}>}
+ */
+async function saveStationMetadata(detailJson) {
+  try {
+    console.log('UPSERTING INTO SUPABASE: station_metadata...')
+
+    const first = detailJson?.entidad?.[0] ?? {}
+    const locationData = first?.locationData
+    const cpAddress = locationData?.supplyPointData?.cpAddress
+
+    const port1Logical = first?.logicalSocket?.[0] ?? null
+    const port2Logical = first?.logicalSocket?.[1] ?? null
+    const port1Physical = port1Logical?.physicalSocket?.[0] ?? null
+    const port2Physical = port2Logical?.physicalSocket?.[0] ?? null
+
+    const payload = {
+      cp_id: first?.cpId ?? null,
+      cupr_id: locationData?.cuprId ?? null,
+      serial_number: first?.serialNumber ?? null,
+      operator_name: locationData?.operator?.operatorDesc ?? null,
+      address_street: cpAddress?.streetName ?? null,
+      address_number: cpAddress?.streetNum ?? null,
+      address_town: cpAddress?.townName ?? null,
+      address_region: cpAddress?.regionName ?? null,
+      schedule_code: locationData?.scheduleType?.scheduleCodeType ?? null,
+      schedule_description: locationData?.scheduleType?.scheduleTypeDesc ?? null,
+      supports_reservation: locationData?.cuprReservationIndicator ?? false,
+      charge_point_type_code: locationData?.chargePointTypeCode ?? null,
+      port1_socket_details: buildSocketDetails(port1Physical, port1Logical),
+      port2_socket_details: buildSocketDetails(port2Physical, port2Logical),
+      updated_at: new Date().toISOString(),
+    }
+
+    const { data, error } = await upsertRow('station_metadata', payload, 'cp_id')
+
+    console.log('SUPABASE station_metadata RESULT:', { data, error })
+
+    if (error) {
+      console.error('SUPABASE ERROR (station_metadata):', error)
+      return { success: false, error }
+    }
+
+    return { success: true, error: null }
+  } catch (err) {
+    console.error('FAILED TO SAVE INTO station_metadata', err)
+    return { success: false, error: err }
+  }
+}
+
+module.exports = {
+  validateResponse,
+  parseEntidad,
+  saveRaw,
+  saveParsed,
+  saveStationMetadata,
+}

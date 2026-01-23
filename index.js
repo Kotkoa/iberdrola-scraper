@@ -3,6 +3,7 @@ const {
   validateResponse,
   saveRaw,
   saveParsed,
+  saveStationMetadata,
 } = require('./src/supabaseService')
 
 const CUPR_ID = 144569
@@ -45,7 +46,13 @@ async function main() {
     process.exitCode = 1
   }
 
-  if (rawResult.success && parsedResult.success) {
+  const metadataResult = await saveStationMetadata(detailJson)
+  if (!metadataResult.success) {
+    console.error('FAILED TO SAVE STATION METADATA')
+    process.exitCode = 1
+  }
+
+  if (rawResult.success && parsedResult.success && metadataResult.success) {
     console.log('DONE — all data saved successfully')
   }
 }
