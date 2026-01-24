@@ -204,3 +204,31 @@ To modify or extend:
 3. **Additional API calls**: Add new functions to [iberdrolaClient.js](../src/iberdrolaClient.js) following `fetchDatos()` pattern
 4. **New Supabase tables**: Add new `save*()` functions in [supabaseService.js](../src/supabaseService.js)
 5. **Change schedule**: Update cron expression in [scraper.yml:5](../.github/workflows/scraper.yml#L5)
+
+## Code Comments
+
+- Do not use comments unless absolutely necessary.
+- **All code comments must ALWAYS be in English** - this includes comments in TypeScript, JavaScript, JSX, TSX, CSS, and any other code files.
+- Only meaningful comments should be added.
+
+## Chat Responses
+
+- All information in chat replies (natural language responses to user questions) should be in Russian.
+- **Exception**: Code itself and code comments must always be in English, regardless of the chat language.
+
+
+mui-mcp
+
+Always use the MUI MCP server when working with Material UI components, theming, styling, or MUI-specific APIs and patterns.
+
+context7
+
+Always use the Context7 MCP server to retrieve up-to-date documentation, examples, and best practices for third-party libraries and frameworks.
+
+chrome-devtools
+
+Always use the Chrome DevTools MCP server when debugging frontend issues, analyzing performance, inspecting DOM, or working with browser runtime behavior.
+
+playwright
+
+Always use the Playwright MCP server when writing, updating, or debugging end-to-end tests, browser automation, or test selectors.
