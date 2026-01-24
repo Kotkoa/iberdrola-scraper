@@ -74,6 +74,66 @@ async function insertRow(table, payload) {
 }
 
 /**
+ * Fetch last status for a station to enable deduplication
+ * @param {number} cpId - charging point ID
+ * @returns {Promise<{port1Status: string|null, port2Status: string|null, overallStatus: string|null, emergencyStopPressed: boolean|null}|null>}
+ */
+async function getLastStatus(cpId) {
+  const configError = getConfigError()
+  if (configError) return null
+
+  const url = `${SUPABASE_REST_URL}/rpc/get_last_station_status`
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: SUPABASE_HEADERS,
+      body: JSON.stringify({ p_cp_id: cpId }),
+    })
+
+    if (!res.ok) return null
+
+    const data = await res.json()
+    if (!data || data.length === 0) return null
+
+    const row = data[0]
+    return {
+      port1Status: row.port1_status,
+      port2Status: row.port2_status,
+      overallStatus: row.overall_status,
+      emergencyStopPressed: row.emergency_stop_pressed,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * @typedef {Object} StatusSnapshot
+ * @property {string|null} port1Status
+ * @property {string|null} port2Status
+ * @property {string|null} overallStatus
+ * @property {boolean|null} emergencyStopPressed
+ */
+
+/**
+ * Check if station status has changed
+ * @param {StatusSnapshot} current - current parsed data
+ * @param {StatusSnapshot|null} last - last status from DB
+ * @returns {boolean}
+ */
+function hasStatusChanged(current, last) {
+  if (!last) return true // No previous data, always insert
+
+  return (
+    current.port1Status !== last.port1Status ||
+    current.port2Status !== last.port2Status ||
+    current.overallStatus !== last.overallStatus ||
+    current.emergencyStopPressed !== last.emergencyStopPressed
+  )
+}
+
+/**
  * @typedef {Object} ScheduleType
  * @property {string|null} scheduleTypeDesc
  * @property {string|null} scheduleCodeType
@@ -316,15 +376,29 @@ async function saveRaw(detailJson) {
 }
 
 /**
- * Save parsed charging point data to Supabase
+ * Save parsed charging point data to Supabase (with deduplication)
  * @param {IberdrolaResponse} detailJson
- * @returns {Promise<{success: boolean, error: any}>}
+ * @returns {Promise<{success: boolean, skipped: boolean, error: any}>}
  */
 async function saveParsed(detailJson) {
   try {
-    console.log('INSERTING INTO SUPABASE: charge_logs_parsed...')
-
     const parsed = parseEntidad(detailJson)
+
+    // Check if status changed (deduplication)
+    const lastStatus = await getLastStatus(parsed.cpId)
+    const currentStatus = {
+      port1Status: parsed.port1Status,
+      port2Status: parsed.port2Status,
+      overallStatus: parsed.overallStatus,
+      emergencyStopPressed: parsed.emergencyStopPressed,
+    }
+
+    if (!hasStatusChanged(currentStatus, lastStatus)) {
+      console.log('SKIPPING charge_logs_parsed: status unchanged')
+      return { success: true, skipped: true, error: null }
+    }
+
+    console.log('INSERTING INTO SUPABASE: charge_logs_parsed (status changed)...')
 
     const { data, error } = await insertRow('charge_logs_parsed', {
       cp_id: parsed.cpId,
@@ -358,13 +432,13 @@ async function saveParsed(detailJson) {
 
     if (error) {
       console.error('SUPABASE ERROR (charge_logs_parsed):', error)
-      return { success: false, error }
+      return { success: false, skipped: false, error }
     }
 
-    return { success: true, error: null }
+    return { success: true, skipped: false, error: null }
   } catch (err) {
     console.error('FAILED TO SAVE INTO charge_logs_parsed', err)
-    return { success: false, error: err }
+    return { success: false, skipped: false, error: err }
   }
 }
 

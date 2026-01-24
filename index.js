@@ -34,25 +34,34 @@ async function main() {
     return
   }
 
-  const rawResult = await saveRaw(detailJson)
-  if (!rawResult.success) {
-    console.error('FAILED TO SAVE RAW DATA')
-    process.exitCode = 1
-  }
-
+  // Save parsed data (with deduplication check)
   const parsedResult = await saveParsed(detailJson)
   if (!parsedResult.success) {
     console.error('FAILED TO SAVE PARSED DATA')
     process.exitCode = 1
   }
 
+  // Only save raw if status changed (deduplication)
+  let rawResult = { success: true, error: null }
+  if (!parsedResult.skipped) {
+    rawResult = await saveRaw(detailJson)
+    if (!rawResult.success) {
+      console.error('FAILED TO SAVE RAW DATA')
+      process.exitCode = 1
+    }
+  }
+
+  // Always update metadata (upsert)
   const metadataResult = await saveStationMetadata(detailJson)
   if (!metadataResult.success) {
     console.error('FAILED TO SAVE STATION METADATA')
     process.exitCode = 1
   }
 
-  if (rawResult.success && parsedResult.success && metadataResult.success) {
+  // Summary
+  if (parsedResult.skipped) {
+    console.log('DONE — status unchanged, skipped inserts (dedup)')
+  } else if (rawResult.success && parsedResult.success && metadataResult.success) {
     console.log('DONE — all data saved successfully')
   }
 }
