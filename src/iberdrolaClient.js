@@ -66,6 +66,23 @@
 const ENDPOINT =
   'https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga'
 
+const DEFAULT_TIMEOUT = 15000
+
+async function fetchWithTimeout(url, options = {}, timeout = DEFAULT_TIMEOUT) {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    return response
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 const USER_AGENT =
   process.env.USER_AGENT ||
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -138,7 +155,7 @@ async function fetchDatos(cuprId, attempts = 3) {
   try {
     return await withRetry(
       async () => {
-        const res = await fetch(ENDPOINT, {
+        const res = await fetchWithTimeout(ENDPOINT, {
           method: 'POST',
           headers,
           body: JSON.stringify(body),

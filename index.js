@@ -1,18 +1,22 @@
 const { fetchDatos } = require('./src/iberdrolaClient')
 const {
+  assertConfig,
   validateResponse,
   saveRaw,
+  saveParsed,
   saveStationMetadata,
   saveSnapshot,
 } = require('./src/supabaseService')
 
-const CUPR_ID = 144569
+const CUPR_ID = parseInt(process.env.CUPR_ID, 10) || 144569
 
 /**
  * Main orchestrator: fetches data and persists to Supabase
  * @returns {Promise<void>}
  */
 async function main() {
+  assertConfig()
+
   console.log('START FETCH getDatosPuntoRecarga, cuprId =', CUPR_ID)
 
   const detailJson = await fetchDatos(CUPR_ID)
@@ -47,15 +51,24 @@ async function main() {
     }
   }
 
+  const parsedResult = await saveParsed(detailJson)
+  if (!parsedResult.success) {
+    console.error('FAILED TO SAVE PARSED DATA')
+    process.exitCode = 1
+  }
+  if (parsedResult.skipped) {
+    console.log('Parsed insert skipped (dedup)')
+  }
+
   const metadataResult = await saveStationMetadata(detailJson)
   if (!metadataResult.success) {
     console.error('FAILED TO SAVE STATION METADATA')
     process.exitCode = 1
   }
 
-  if (snapshotResult.skipped) {
+  if (snapshotResult.skipped && parsedResult.skipped) {
     console.log('DONE — status unchanged, skipped inserts (dedup)')
-  } else if (rawResult.success && snapshotResult.success && metadataResult.success) {
+  } else if (rawResult.success && snapshotResult.success && parsedResult.success && metadataResult.success) {
     console.log('DONE — all data saved successfully')
   }
 }

@@ -25,6 +25,31 @@ function getConfigError() {
   return null
 }
 
+function assertConfig() {
+  const error = getConfigError()
+  if (error) {
+    console.error('CONFIG ERROR:', error.message)
+    process.exit(1)
+  }
+}
+
+const DEFAULT_TIMEOUT = 15000
+
+async function fetchWithTimeout(url, options = {}, timeout = DEFAULT_TIMEOUT) {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    return response
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
 function safeJsonParse(text) {
   try {
     return JSON.parse(text)
@@ -49,7 +74,7 @@ async function insertRow(table, payload) {
   const url = `${SUPABASE_REST_URL}/${table}`
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: SUPABASE_HEADERS,
       body: JSON.stringify(payload),
@@ -85,7 +110,7 @@ async function getLastStatus(cpId) {
   const url = `${SUPABASE_REST_URL}/rpc/get_last_station_status`
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: SUPABASE_HEADERS,
       body: JSON.stringify({ p_cp_id: cpId }),
@@ -458,7 +483,7 @@ async function upsertRow(table, payload, onConflict) {
   const url = `${SUPABASE_REST_URL}/${table}?on_conflict=${onConflict}`
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: {
         ...SUPABASE_HEADERS,
@@ -576,7 +601,7 @@ async function callRpc(functionName, params) {
   const url = `${SUPABASE_REST_URL}/rpc/${functionName}`
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: 'POST',
       headers: SUPABASE_HEADERS,
       body: JSON.stringify(params),
@@ -733,6 +758,7 @@ async function saveSnapshot(detailJson) {
 }
 
 module.exports = {
+  assertConfig,
   validateResponse,
   parseEntidad,
   saveRaw,

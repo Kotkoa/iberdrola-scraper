@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Collect charging point data from Iberdrola API and store in Supabase",
   "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node index.js"
   },
