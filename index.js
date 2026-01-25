@@ -2,8 +2,8 @@ const { fetchDatos } = require('./src/iberdrolaClient')
 const {
   validateResponse,
   saveRaw,
-  saveParsed,
   saveStationMetadata,
+  saveSnapshot,
 } = require('./src/supabaseService')
 
 const CUPR_ID = 144569
@@ -17,7 +17,6 @@ async function main() {
 
   const detailJson = await fetchDatos(CUPR_ID)
 
-  // Check that data is received
   if (!detailJson) {
     console.error('FETCH FAILED: no data received')
     console.log('SKIPPING DB inserts')
@@ -25,7 +24,6 @@ async function main() {
     return
   }
 
-  // Validate response structure
   const validation = validateResponse(detailJson)
   if (!validation.valid) {
     console.error('VALIDATION FAILED:', validation.reason)
@@ -34,16 +32,14 @@ async function main() {
     return
   }
 
-  // Save parsed data (with deduplication check)
-  const parsedResult = await saveParsed(detailJson)
-  if (!parsedResult.success) {
-    console.error('FAILED TO SAVE PARSED DATA')
+  const snapshotResult = await saveSnapshot(detailJson)
+  if (!snapshotResult.success) {
+    console.error('FAILED TO SAVE SNAPSHOT')
     process.exitCode = 1
   }
 
-  // Only save raw if status changed (deduplication)
   let rawResult = { success: true, error: null }
-  if (!parsedResult.skipped) {
+  if (!snapshotResult.skipped) {
     rawResult = await saveRaw(detailJson)
     if (!rawResult.success) {
       console.error('FAILED TO SAVE RAW DATA')
@@ -51,17 +47,15 @@ async function main() {
     }
   }
 
-  // Always update metadata (upsert)
   const metadataResult = await saveStationMetadata(detailJson)
   if (!metadataResult.success) {
     console.error('FAILED TO SAVE STATION METADATA')
     process.exitCode = 1
   }
 
-  // Summary
-  if (parsedResult.skipped) {
+  if (snapshotResult.skipped) {
     console.log('DONE — status unchanged, skipped inserts (dedup)')
-  } else if (rawResult.success && parsedResult.success && metadataResult.success) {
+  } else if (rawResult.success && snapshotResult.success && metadataResult.success) {
     console.log('DONE — all data saved successfully')
   }
 }
