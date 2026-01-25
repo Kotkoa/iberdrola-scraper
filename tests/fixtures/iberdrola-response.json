@@ -1,0 +1,118 @@
+{
+  "entidad": [
+    {
+      "cpId": 144569,
+      "locationData": {
+        "cuprName": "Iberdrola Charging Station Test",
+        "cuprId": 100001,
+        "latitude": 40.416775,
+        "longitude": -3.703790,
+        "situationCode": "ACTIVE",
+        "scheduleType": {
+          "scheduleTypeDesc": "24 hours",
+          "scheduleCodeType": "24H"
+        },
+        "supplyPointData": {
+          "cpAddress": {
+            "streetName": "Calle Gran Via",
+            "streetNum": "42",
+            "townName": "Madrid",
+            "regionName": "Madrid"
+          }
+        },
+        "operator": {
+          "operatorDesc": "Iberdrola"
+        },
+        "cuprReservationIndicator": true,
+        "chargePointTypeCode": "DC_FAST"
+      },
+      "logicalSocket": [
+        {
+          "logicalSocketId": 1001,
+          "evseId": "ES*IBE*E001*001",
+          "chargeSpeedId": 3,
+          "status": {
+            "statusCode": "AVAILABLE",
+            "updateDate": "2026-01-25T10:30:00Z",
+            "statusId": 1
+          },
+          "physicalSocket": [
+            {
+              "physicalSocketId": 2001,
+              "physicalSocketCode": "CCS2",
+              "maxPower": 50,
+              "socketType": {
+                "socketTypeId": "CCS",
+                "socketName": "CCS Combo 2"
+              },
+              "status": {
+                "statusCode": "AVAILABLE",
+                "updateDate": "2026-01-25T10:30:00Z",
+                "statusId": 1
+              },
+              "appliedRate": {
+                "recharge": {
+                  "price": 0.35,
+                  "typeRate": "kWh",
+                  "finalPrice": 0.39
+                },
+                "reservation": {
+                  "price": 0.05,
+                  "typeRate": "min",
+                  "finalPrice": 0.05
+                }
+              }
+            }
+          ]
+        },
+        {
+          "logicalSocketId": 1002,
+          "evseId": "ES*IBE*E001*002",
+          "chargeSpeedId": 3,
+          "status": {
+            "statusCode": "OCCUPIED",
+            "updateDate": "2026-01-25T09:15:00Z",
+            "statusId": 2
+          },
+          "physicalSocket": [
+            {
+              "physicalSocketId": 2002,
+              "physicalSocketCode": "CHAdeMO",
+              "maxPower": 50,
+              "socketType": {
+                "socketTypeId": "CHADEMO",
+                "socketName": "CHAdeMO"
+              },
+              "status": {
+                "statusCode": "OCCUPIED",
+                "updateDate": "2026-01-25T09:15:00Z",
+                "statusId": 2
+              },
+              "appliedRate": {
+                "recharge": {
+                  "price": 0.35,
+                  "typeRate": "kWh",
+                  "finalPrice": 0.39
+                },
+                "reservation": null
+              }
+            }
+          ]
+        }
+      ],
+      "cpStatus": {
+        "statusCode": "PARTIALLY_AVAILABLE",
+        "updateDate": "2026-01-25T10:30:00Z",
+        "statusId": 3
+      },
+      "socketNum": 2,
+      "advantageous": false,
+      "serialNumber": "IBE-DC-2024-001",
+      "emergencyStopButtonPressed": false
+    }
+  ],
+  "seguro": true,
+  "errorAjax": null,
+  "errores": null,
+  "serviceException": null
+}

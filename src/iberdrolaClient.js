@@ -177,4 +177,10 @@ async function fetchDatos(cuprId, attempts = 3) {
   }
 }
 
-module.exports = { fetchDatos }
+module.exports = {
+  fetchDatos,
+  buildBody,
+  buildHeaders,
+  withRetry,
+  fetchWithTimeout,
+}
