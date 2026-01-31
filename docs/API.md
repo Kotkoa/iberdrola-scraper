@@ -992,4 +992,476 @@ interface SocketDetails {
 | `index.js` | Main orchestrator — fetches, validates, persists |
 | `src/iberdrolaClient.js` | Iberdrola API client with retry/timeout |
 | `src/supabaseService.js` | Supabase REST client, validation, parsing |
+| `src/geoSearchClient.js` | Geo Search API client |
+| `src/geoSearch.js` | Geo Search orchestrator script |
 | `.github/workflows/scraper.yml` | GitHub Actions cron (every 5 min) |
+| `.github/workflows/geo-search.yml` | Geo Search workflow (manual trigger) |
+
+---
+
+## 13. Geo-Search API
+
+Search for EV charging stations within a geographic bounding box via Iberdrola's `getListarPuntosRecarga` endpoint. Runs as a GitHub Action with manual trigger or can be called directly from frontend.
+
+### Architecture
+
+```
+geoSearch.js (orchestrator)
+    │
+    ├── 1. assertConfig() — validate env vars
+    │
+    ├── 2. validateInputs(bbox) — validate bounding box
+    │       └── Max 25km radius check
+    │
+    ├── 3. fetchStationsInBoundingBox(bbox) — Iberdrola API
+    │       └── geoSearchClient.js
+    │
+    └── 4. upsertRow('station_metadata', payload) — persist to Supabase
+            └── supabaseService.js
+```
+
+### Iberdrola Geo-Search Endpoint
+
+#### Endpoint
+
+```
+POST https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getListarPuntosRecarga
+```
+
+#### Request
+
+```typescript
+interface GeoSearchRequest {
+  dto: {
+    chargePointTypesCodes: string[];  // ['P', 'R', 'I', 'N']
+    socketStatus: string[];           // [] (all statuses)
+    advantageous: boolean;            // false
+    connectorsType: string[];         // []
+    loadSpeed: string[];              // []
+    latitudeMax: number;
+    latitudeMin: number;
+    longitudeMax: number;
+    longitudeMin: number;
+  };
+  language: string;  // 'en' | 'es'
+}
+
+// Example
+{
+  "dto": {
+    "chargePointTypesCodes": ["P", "R", "I", "N"],
+    "socketStatus": [],
+    "advantageous": false,
+    "connectorsType": [],
+    "loadSpeed": [],
+    "latitudeMax": 38.865,
+    "latitudeMin": 38.812,
+    "longitudeMax": -0.075,
+    "longitudeMin": -0.156
+  },
+  "language": "en"
+}
+```
+
+#### Headers
+
+Same as main Iberdrola API (see [Section 12](#12-backend-api-scraper)):
+
+```typescript
+const headers = {
+  'content-type': 'application/json',
+  'accept': 'application/json, text/javascript, */*; q=0.01',
+  'accept-language': 'en-US,en;q=0.9',
+  'referer': 'https://www.iberdrola.es/en/electric-mobility/recharge-outside-the-house',
+  'origin': 'https://www.iberdrola.es',
+  'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ...',
+  'x-requested-with': 'XMLHttpRequest',
+};
+```
+
+#### Response Types
+
+```typescript
+interface GeoSearchResponse {
+  entidad: GeoSearchStation[];
+  seguro: boolean;
+  errorAjax: string | null;
+}
+
+interface GeoSearchStation {
+  cpId: number;
+  locationData: GeoSearchLocationData;
+  cpStatus: { statusCode: string | null } | null;
+  socketNum: number;
+}
+
+interface GeoSearchLocationData {
+  cuprId: number;
+  cuprName: string;
+  latitude: number;
+  longitude: number;
+  situationCode: string | null;
+  supplyPointData: {
+    cpAddress: {
+      streetName: string | null;
+      streetNum: string | null;
+      townName: string | null;
+      regionName: string | null;
+    } | null;
+  } | null;
+}
+```
+
+### Bounding Box Validation
+
+The `validateInputs()` function enforces constraints:
+
+```typescript
+function validateInputs(bbox: BoundingBox): {
+  valid: boolean;
+  reason: string | null;
+}
+
+interface BoundingBox {
+  latMin: number;
+  latMax: number;
+  lonMin: number;
+  lonMax: number;
+}
+```
+
+#### Validation Rules
+
+| Check | Condition | Error |
+|-------|-----------|-------|
+| Numbers valid | No NaN values | `'Invalid number in coordinates'` |
+| Lat order | `latMin < latMax` | `'lat_min must be less than lat_max'` |
+| Lon order | `lonMin < lonMax` | `'lon_min must be less than lon_max'` |
+| Lat range | `-90 ≤ lat ≤ 90` | `'Latitude must be between -90 and 90'` |
+| Lon range | `-180 ≤ lon ≤ 180` | `'Longitude must be between -180 and 180'` |
+| Size limit | `≤ 50km` (25km radius) | `'Bounding box exceeds maximum size of 25km radius'` |
+
+#### Size Calculation
+
+```javascript
+const MAX_RADIUS_KM = 25
+const KM_PER_DEGREE_LAT = 111
+
+const latDeltaKm = (latMax - latMin) * KM_PER_DEGREE_LAT
+const centerLat = (latMin + latMax) / 2
+const lonDeltaKm = (lonMax - lonMin) * KM_PER_DEGREE_LAT * Math.cos(centerLat * Math.PI / 180)
+
+if (latDeltaKm > MAX_RADIUS_KM * 2 || lonDeltaKm > MAX_RADIUS_KM * 2) {
+  return { valid: false, reason: 'Bounding box exceeds maximum size...' }
+}
+```
+
+### Station Payload (Upsert)
+
+Stations are upserted to `station_metadata` table:
+
+```typescript
+interface StationMetadataPayload {
+  cp_id: number;            // Primary key
+  cupr_id: number | null;
+  name: string | null;      // cuprName
+  latitude: number | null;
+  longitude: number | null;
+  address_full: string | null;
+  overall_status: string | null;
+  total_ports: number | null;
+  situation_code: string | null;
+  updated_at: string;       // ISO timestamp
+}
+```
+
+### GitHub Actions Workflow
+
+**File**: `.github/workflows/geo-search.yml`
+
+```yaml
+name: Geo Search
+
+on:
+  workflow_dispatch:
+    inputs:
+      lat_min:
+        description: 'Minimum latitude'
+        required: true
+        type: string
+      lat_max:
+        description: 'Maximum latitude'
+        required: true
+        type: string
+      lon_min:
+        description: 'Minimum longitude'
+        required: true
+        type: string
+      lon_max:
+        description: 'Maximum longitude'
+        required: true
+        type: string
+```
+
+**Trigger manually**:
+1. Go to **Actions** → **Geo Search** → **Run workflow**
+2. Enter bounding box coordinates
+3. Click **Run workflow**
+
+### Environment Variables (Geo-Search)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_KEY` | Yes* | Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes* | Service role key (priority) |
+| `LAT_MIN` | Yes | Minimum latitude |
+| `LAT_MAX` | Yes | Maximum latitude |
+| `LON_MIN` | Yes | Minimum longitude |
+| `LON_MAX` | Yes | Maximum longitude |
+
+### Local Testing
+
+```bash
+export SUPABASE_URL="https://xxx.supabase.co"
+export SUPABASE_KEY="your-key"
+export LAT_MIN=38.812 LAT_MAX=38.865 LON_MIN=-0.156 LON_MAX=-0.075
+
+node src/geoSearch.js
+# Output: Found 3 stations, Completed: 3 stations upserted, 0 errors
+```
+
+---
+
+## 14. Frontend Integration: Geo-Search
+
+### Direct API Call (CORS Blocked)
+
+⚠️ **Warning**: Direct calls to Iberdrola API from frontend are blocked by CORS and Akamai CDN. Use one of the alternatives below.
+
+### Option 1: Supabase Edge Function (Recommended)
+
+Create an Edge Function that proxies the request:
+
+```typescript
+// supabase/functions/geo-search/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+
+const GEO_SEARCH_ENDPOINT =
+  'https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getListarPuntosRecarga'
+
+serve(async (req) => {
+  const { latMin, latMax, lonMin, lonMax } = await req.json()
+
+  const body = {
+    dto: {
+      chargePointTypesCodes: ['P', 'R', 'I', 'N'],
+      socketStatus: [],
+      advantageous: false,
+      connectorsType: [],
+      loadSpeed: [],
+      latitudeMax: latMax,
+      latitudeMin: latMin,
+      longitudeMax: lonMax,
+      longitudeMin: lonMin,
+    },
+    language: 'en',
+  }
+
+  const response = await fetch(GEO_SEARCH_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'accept': 'application/json, text/javascript, */*; q=0.01',
+      'referer': 'https://www.iberdrola.es/en/electric-mobility/recharge-outside-the-house',
+      'origin': 'https://www.iberdrola.es',
+      'x-requested-with': 'XMLHttpRequest',
+    },
+    body: JSON.stringify(body),
+  })
+
+  const data = await response.json()
+
+  return new Response(JSON.stringify(data.entidad || []), {
+    headers: { 'Content-Type': 'application/json' },
+  })
+})
+```
+
+**Frontend call**:
+
+```typescript
+// src/services/geoSearch.ts
+export async function searchStationsInBbox(bbox: BoundingBox): Promise<Station[]> {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/geo-search`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify(bbox),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Geo search failed: ${response.status}`)
+  }
+
+  return response.json()
+}
+```
+
+### Option 2: Query Cached Data from Supabase
+
+Query stations already discovered by the backend geo-search workflow:
+
+```typescript
+// src/services/stationSearch.ts
+export async function getStationsInBbox(bbox: BoundingBox): Promise<StationMetadata[]> {
+  const { data, error } = await supabase
+    .from('station_metadata')
+    .select('*')
+    .gte('latitude', bbox.latMin)
+    .lte('latitude', bbox.latMax)
+    .gte('longitude', bbox.lonMin)
+    .lte('longitude', bbox.lonMax)
+    .limit(100)
+
+  if (error) throw error
+  return data
+}
+```
+
+**REST API equivalent**:
+
+```
+GET ${SUPABASE_URL}/rest/v1/station_metadata
+  ?latitude=gte.{latMin}
+  &latitude=lte.{latMax}
+  &longitude=gte.{lonMin}
+  &longitude=lte.{lonMax}
+  &limit=100
+
+Headers:
+  apikey: ${SUPABASE_ANON_KEY}
+  Authorization: Bearer ${SUPABASE_ANON_KEY}
+```
+
+### Option 3: Trigger GitHub Action via API
+
+Trigger the geo-search workflow programmatically:
+
+```typescript
+// Requires GitHub personal access token with workflow scope
+export async function triggerGeoSearch(bbox: BoundingBox, token: string): Promise<void> {
+  await fetch(
+    'https://api.github.com/repos/{owner}/{repo}/actions/workflows/geo-search.yml/dispatches',
+    {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ref: 'main',
+        inputs: {
+          lat_min: String(bbox.latMin),
+          lat_max: String(bbox.latMax),
+          lon_min: String(bbox.lonMin),
+          lon_max: String(bbox.lonMax),
+        },
+      }),
+    }
+  )
+}
+```
+
+### React Hook Example
+
+```typescript
+// src/hooks/useGeoSearch.ts
+import { useState, useCallback } from 'react'
+import { supabase } from '../api/supabase'
+
+interface BoundingBox {
+  latMin: number
+  latMax: number
+  lonMin: number
+  lonMax: number
+}
+
+interface StationMetadata {
+  cp_id: number
+  cupr_id: number
+  name: string
+  latitude: number
+  longitude: number
+  address_full: string
+  overall_status: string
+  total_ports: number
+}
+
+export function useGeoSearch() {
+  const [stations, setStations] = useState<StationMetadata[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const search = useCallback(async (bbox: BoundingBox) => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const { data, error: supabaseError } = await supabase
+        .from('station_metadata')
+        .select('cp_id, cupr_id, name, latitude, longitude, address_full, overall_status, total_ports')
+        .gte('latitude', bbox.latMin)
+        .lte('latitude', bbox.latMax)
+        .gte('longitude', bbox.lonMin)
+        .lte('longitude', bbox.lonMax)
+        .not('latitude', 'is', null)
+        .not('longitude', 'is', null)
+        .limit(100)
+
+      if (supabaseError) throw supabaseError
+
+      setStations(data || [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Search failed')
+      setStations([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  return { stations, loading, error, search }
+}
+```
+
+### Usage in Component
+
+```tsx
+// src/components/MapSearch.tsx
+import { useGeoSearch } from '../hooks/useGeoSearch'
+
+export function MapSearch() {
+  const { stations, loading, error, search } = useGeoSearch()
+
+  const handleMapBoundsChange = (bounds: google.maps.LatLngBounds) => {
+    search({
+      latMin: bounds.getSouthWest().lat(),
+      latMax: bounds.getNorthEast().lat(),
+      lonMin: bounds.getSouthWest().lng(),
+      lonMax: bounds.getNorthEast().lng(),
+    })
+  }
+
+  return (
+    <div>
+      {loading && <Spinner />}
+      {error && <Alert type="error">{error}</Alert>}
+      {stations.map(station => (
+        <StationMarker key={station.cp_id} station={station} />
+      ))}
+    </div>
+  )
+}
+```
