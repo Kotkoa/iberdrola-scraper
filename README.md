@@ -17,14 +17,18 @@ Key files:
 
 Architecture / data flow:
 
+> ⚠️ **Note**: This scraper writes to deprecated tables (`charge_logs`, `charge_logs_parsed`). Active data now flows through Supabase Edge Function `save-snapshot` → `station_snapshots` / `station_metadata`.
+
 - The script makes direct POST requests to both the Iberdrola endpoint (`https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga`) and Supabase's REST API (`${SUPABASE_URL}/rest/v1/...`).
 - Passes a charging point ID (`cuprId`) in the request body.
-- The full JSON response is stored in `charge_logs`, and a set of parsed fields is inserted into `charge_logs_parsed`.
+- Data is stored across four tables: raw logs, parsed fields, snapshots, and metadata.
 
-Supabase tables (expected):
+Supabase tables:
 
-- `charge_logs` — stores `cp_id`, `status`, `full_json` (raw API response).
-- `charge_logs_parsed` — normalized columns: `cp_id`, `cp_name`, `schedule`, `port1_status`, `port1_power_kw`, `port1_update_date`, `port2_status`, `port2_power_kw`, `port2_update_date`, `overall_status`, `overall_update_date`.
+- `charge_logs` — ⚠️ **DEPRECATED** — raw API response. Data now flows via Edge Functions.
+- `charge_logs_parsed` — ⚠️ **DEPRECATED** — parsed data. Replaced by `station_snapshots`.
+- `station_snapshots` — ✅ active snapshots (written by Edge Function `save-snapshot`).
+- `station_metadata` — ✅ static station info (written by Edge Function `save-snapshot`).
 
 ## Installation and run
 
@@ -71,7 +75,13 @@ You can override defaults via environment variables:
 
 - Add a CLI flag or environment variable to iterate over multiple charging point IDs.
 - Export results to CSV/JSON locally as a backup alongside Supabase inserts.
-- Add tests or validation for response structure.
+
+## Testing
+
+```bash
+npm test              # Run tests
+npm run test:coverage # Run with coverage
+```
 
 ## Author and license
 
