@@ -2,8 +2,6 @@ const { fetchDatos } = require('./src/iberdrolaClient')
 const {
   assertConfig,
   validateResponse,
-  saveRaw,
-  saveParsed,
   saveStationMetadata,
   saveSnapshot,
 } = require('./src/supabaseService')
@@ -42,33 +40,15 @@ async function main() {
     process.exitCode = 1
   }
 
-  let rawResult = { success: true, error: null }
-  if (!snapshotResult.skipped) {
-    rawResult = await saveRaw(detailJson)
-    if (!rawResult.success) {
-      console.error('FAILED TO SAVE RAW DATA')
-      process.exitCode = 1
-    }
-  }
-
-  const parsedResult = await saveParsed(detailJson)
-  if (!parsedResult.success) {
-    console.error('FAILED TO SAVE PARSED DATA')
-    process.exitCode = 1
-  }
-  if (parsedResult.skipped) {
-    console.log('Parsed insert skipped (dedup)')
-  }
-
   const metadataResult = await saveStationMetadata(detailJson)
   if (!metadataResult.success) {
     console.error('FAILED TO SAVE STATION METADATA')
     process.exitCode = 1
   }
 
-  if (snapshotResult.skipped && parsedResult.skipped) {
-    console.log('DONE — status unchanged, skipped inserts (dedup)')
-  } else if (rawResult.success && snapshotResult.success && parsedResult.success && metadataResult.success) {
+  if (snapshotResult.skipped) {
+    console.log('DONE — status unchanged, skipped snapshot (dedup)')
+  } else if (snapshotResult.success && metadataResult.success) {
     console.log('DONE — all data saved successfully')
   }
 }

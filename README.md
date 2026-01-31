@@ -17,18 +17,14 @@ Key files:
 
 Architecture / data flow:
 
-> ⚠️ **Note**: This scraper writes to deprecated tables (`charge_logs`, `charge_logs_parsed`). Active data now flows through Supabase Edge Function `save-snapshot` → `station_snapshots` / `station_metadata`.
-
 - The script makes direct POST requests to both the Iberdrola endpoint (`https://www.iberdrola.es/o/webclipb/iberdrola/puntosrecargacontroller/getDatosPuntoRecarga`) and Supabase's REST API (`${SUPABASE_URL}/rest/v1/...`).
 - Passes a charging point ID (`cuprId`) in the request body.
-- Data is stored across four tables: raw logs, parsed fields, snapshots, and metadata.
+- Data is stored in two tables: snapshots and metadata.
 
 Supabase tables:
 
-- `charge_logs` — ⚠️ **DEPRECATED** — raw API response. Data now flows via Edge Functions.
-- `charge_logs_parsed` — ⚠️ **DEPRECATED** — parsed data. Replaced by `station_snapshots`.
-- `station_snapshots` — ✅ active snapshots (written by Edge Function `save-snapshot`).
-- `station_metadata` — ✅ static station info (written by Edge Function `save-snapshot`).
+- `station_snapshots` — throttled snapshots for analytics (deduplicated via hash).
+- `station_metadata` — static station info (upserted on each run).
 
 ## Installation and run
 

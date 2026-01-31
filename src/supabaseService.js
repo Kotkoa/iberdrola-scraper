@@ -35,6 +35,12 @@ function assertConfig() {
 
 const DEFAULT_TIMEOUT = 15000
 
+/**
+ * @param {string} url
+ * @param {RequestInit} [options]
+ * @param {number} [timeout]
+ * @returns {Promise<Response>}
+ */
 async function fetchWithTimeout(url, options = {}, timeout = DEFAULT_TIMEOUT) {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeout)
@@ -50,6 +56,10 @@ async function fetchWithTimeout(url, options = {}, timeout = DEFAULT_TIMEOUT) {
   }
 }
 
+/**
+ * @param {string} text
+ * @returns {any}
+ */
 function safeJsonParse(text) {
   try {
     return JSON.parse(text)
@@ -76,7 +86,7 @@ async function insertRow(table, payload) {
   try {
     const res = await fetchWithTimeout(url, {
       method: 'POST',
-      headers: SUPABASE_HEADERS,
+      headers: SUPABASE_HEADERS ?? undefined,
       body: JSON.stringify(payload),
     })
 
@@ -94,68 +104,8 @@ async function insertRow(table, payload) {
 
     return { data: parsed, error: null }
   } catch (error) {
-    return { data: null, error }
+    return { data: null, error: error instanceof Error ? error : new Error(String(error)) }
   }
-}
-
-/**
- * Fetch last status for a station to enable deduplication
- * @param {number} cpId - charging point ID
- * @returns {Promise<{port1Status: string|null, port2Status: string|null, overallStatus: string|null, emergencyStopPressed: boolean|null}|null>}
- */
-async function getLastStatus(cpId) {
-  const configError = getConfigError()
-  if (configError) return null
-
-  const url = `${SUPABASE_REST_URL}/rpc/get_last_station_status`
-
-  try {
-    const res = await fetchWithTimeout(url, {
-      method: 'POST',
-      headers: SUPABASE_HEADERS,
-      body: JSON.stringify({ p_cp_id: cpId }),
-    })
-
-    if (!res.ok) return null
-
-    const data = await res.json()
-    if (!data || data.length === 0) return null
-
-    const row = data[0]
-    return {
-      port1Status: row.port1_status,
-      port2Status: row.port2_status,
-      overallStatus: row.overall_status,
-      emergencyStopPressed: row.emergency_stop_pressed,
-    }
-  } catch {
-    return null
-  }
-}
-
-/**
- * @typedef {Object} StatusSnapshot
- * @property {string|null} port1Status
- * @property {string|null} port2Status
- * @property {string|null} overallStatus
- * @property {boolean|null} emergencyStopPressed
- */
-
-/**
- * Check if station status has changed
- * @param {StatusSnapshot} current - current parsed data
- * @param {StatusSnapshot|null} last - last status from DB
- * @returns {boolean}
- */
-function hasStatusChanged(current, last) {
-  if (!last) return true // No previous data, always insert
-
-  return (
-    current.port1Status !== last.port1Status ||
-    current.port2Status !== last.port2Status ||
-    current.overallStatus !== last.overallStatus ||
-    current.emergencyStopPressed !== last.emergencyStopPressed
-  )
 }
 
 /**
@@ -371,103 +321,6 @@ function parseEntidad(detailJson) {
 }
 
 /**
- * Save raw charging point data to Supabase
- * @param {IberdrolaResponse} detailJson
- * @returns {Promise<{success: boolean, error: any}>}
- */
-async function saveRaw(detailJson) {
-  try {
-    console.log('INSERTING INTO SUPABASE: charge_logs...')
-
-    const first = detailJson?.entidad?.[0] ?? {}
-    const { data, error } = await insertRow('charge_logs', {
-      cp_id: first?.cpId ?? null,
-      status: first?.cpStatus?.statusCode ?? null,
-      full_json: detailJson,
-    })
-
-    console.log('SUPABASE charge_logs RESULT:', { data, error })
-
-    if (error) {
-      console.error('SUPABASE ERROR (charge_logs):', error)
-      return { success: false, error }
-    }
-
-    return { success: true, error: null }
-  } catch (err) {
-    console.error('FAILED TO SAVE INTO charge_logs', err)
-    return { success: false, error: err }
-  }
-}
-
-/**
- * Save parsed charging point data to Supabase (with deduplication)
- * @param {IberdrolaResponse} detailJson
- * @returns {Promise<{success: boolean, skipped: boolean, error: any}>}
- */
-async function saveParsed(detailJson) {
-  try {
-    const parsed = parseEntidad(detailJson)
-
-    // Check if status changed (deduplication)
-    const lastStatus = await getLastStatus(parsed.cpId)
-    const currentStatus = {
-      port1Status: parsed.port1Status,
-      port2Status: parsed.port2Status,
-      overallStatus: parsed.overallStatus,
-      emergencyStopPressed: parsed.emergencyStopPressed,
-    }
-
-    if (!hasStatusChanged(currentStatus, lastStatus)) {
-      console.log('SKIPPING charge_logs_parsed: status unchanged')
-      return { success: true, skipped: true, error: null }
-    }
-
-    console.log('INSERTING INTO SUPABASE: charge_logs_parsed (status changed)...')
-
-    const { data, error } = await insertRow('charge_logs_parsed', {
-      cp_id: parsed.cpId,
-      cp_name: parsed.cpName,
-      schedule: parsed.schedule,
-
-      port1_status: parsed.port1Status,
-      port1_power_kw: parsed.port1PowerKw,
-      port1_update_date: parsed.port1UpdateDate,
-
-      port2_status: parsed.port2Status,
-      port2_power_kw: parsed.port2PowerKw,
-      port2_update_date: parsed.port2UpdateDate,
-
-      overall_status: parsed.overallStatus,
-      overall_update_date: parsed.overallUpdateDate,
-
-      // New fields
-      address_full: parsed.addressFull,
-      port1_price_kwh: parsed.port1PriceKwh,
-      port2_price_kwh: parsed.port2PriceKwh,
-      port1_socket_type: parsed.port1SocketType,
-      port2_socket_type: parsed.port2SocketType,
-      emergency_stop_pressed: parsed.emergencyStopPressed,
-      situation_code: parsed.situationCode,
-      cp_latitude: parsed.cpLatitude,
-      cp_longitude: parsed.cpLongitude,
-    })
-
-    console.log('SUPABASE charge_logs_parsed RESULT:', { data, error })
-
-    if (error) {
-      console.error('SUPABASE ERROR (charge_logs_parsed):', error)
-      return { success: false, skipped: false, error }
-    }
-
-    return { success: true, skipped: false, error: null }
-  } catch (err) {
-    console.error('FAILED TO SAVE INTO charge_logs_parsed', err)
-    return { success: false, skipped: false, error: err }
-  }
-}
-
-/**
  * Upsert a row into Supabase table (insert or update on conflict)
  * @param {string} table - table name
  * @param {Object} payload - row data
@@ -506,7 +359,7 @@ async function upsertRow(table, payload, onConflict) {
 
     return { data: parsed, error: null }
   } catch (error) {
-    return { data: null, error }
+    return { data: null, error: error instanceof Error ? error : new Error(String(error)) }
   }
 }
 
@@ -542,7 +395,7 @@ async function saveStationMetadata(detailJson) {
 
     const first = detailJson?.entidad?.[0] ?? {}
     const locationData = first?.locationData
-    const cpAddress = locationData?.supplyPointData?.cpAddress
+    const cpAddress = locationData?.supplyPointData?.cpAddress ?? null
 
     const port1Logical = first?.logicalSocket?.[0] ?? null
     const port2Logical = first?.logicalSocket?.[1] ?? null
@@ -603,7 +456,7 @@ async function callRpc(functionName, params) {
   try {
     const res = await fetchWithTimeout(url, {
       method: 'POST',
-      headers: SUPABASE_HEADERS,
+      headers: SUPABASE_HEADERS ?? undefined,
       body: JSON.stringify(params),
     })
 
@@ -621,13 +474,13 @@ async function callRpc(functionName, params) {
 
     return { data: parsed, error: null }
   } catch (error) {
-    return { data: null, error }
+    return { data: null, error: error instanceof Error ? error : new Error(String(error)) }
   }
 }
 
 /**
  * Compute snapshot hash via Supabase RPC
- * @param {Object} parsed - parsed station data
+ * @param {{port1Status: string|null, port1PowerKw: number|null, port1PriceKwh: number|null, port2Status: string|null, port2PowerKw: number|null, port2PriceKwh: number|null, overallStatus: string|null, emergencyStopPressed: boolean|null, situationCode: string|null}} parsed
  * @returns {Promise<string|null>}
  */
 async function computeSnapshotHash(parsed) {
@@ -761,18 +614,14 @@ module.exports = {
   assertConfig,
   validateResponse,
   parseEntidad,
-  saveRaw,
-  saveParsed,
   saveStationMetadata,
   saveSnapshot,
   getConfigError,
   safeJsonParse,
   truncateError,
   buildFullAddress,
-  hasStatusChanged,
   buildSocketDetails,
   insertRow,
   upsertRow,
   callRpc,
-  getLastStatus,
 }

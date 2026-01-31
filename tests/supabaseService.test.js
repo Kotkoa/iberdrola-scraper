@@ -195,33 +195,6 @@ describe('supabaseService', () => {
     })
   })
 
-  describe('hasStatusChanged', () => {
-    const { hasStatusChanged } = require('../src/supabaseService')
-
-    test('returns true when last is null', () => {
-      const current = { port1Status: 'AVAILABLE', port2Status: null, overallStatus: 'AVAILABLE', emergencyStopPressed: false }
-      assert.strictEqual(hasStatusChanged(current, null), true)
-    })
-
-    test('returns false when statuses are identical', () => {
-      const current = { port1Status: 'AVAILABLE', port2Status: 'OCCUPIED', overallStatus: 'PARTIAL', emergencyStopPressed: false }
-      const last = { port1Status: 'AVAILABLE', port2Status: 'OCCUPIED', overallStatus: 'PARTIAL', emergencyStopPressed: false }
-      assert.strictEqual(hasStatusChanged(current, last), false)
-    })
-
-    test('returns true when port1Status changed', () => {
-      const current = { port1Status: 'OCCUPIED', port2Status: 'OCCUPIED', overallStatus: 'PARTIAL', emergencyStopPressed: false }
-      const last = { port1Status: 'AVAILABLE', port2Status: 'OCCUPIED', overallStatus: 'PARTIAL', emergencyStopPressed: false }
-      assert.strictEqual(hasStatusChanged(current, last), true)
-    })
-
-    test('returns true when emergencyStopPressed changed', () => {
-      const current = { port1Status: 'AVAILABLE', port2Status: 'OCCUPIED', overallStatus: 'PARTIAL', emergencyStopPressed: true }
-      const last = { port1Status: 'AVAILABLE', port2Status: 'OCCUPIED', overallStatus: 'PARTIAL', emergencyStopPressed: false }
-      assert.strictEqual(hasStatusChanged(current, last), true)
-    })
-  })
-
   describe('buildSocketDetails', () => {
     const { buildSocketDetails } = require('../src/supabaseService')
 

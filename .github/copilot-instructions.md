@@ -13,14 +13,14 @@ index.js (orchestrator)
     ↓
 iberdrolaClient.js → fetchDatos() → Iberdrola API
     ↓
-supabaseService.js → saveRaw() + saveParsed() → Supabase REST
+supabaseService.js → saveSnapshot() + saveStationMetadata() → Supabase REST
 ```
 
 **Three-step pipeline** in [index.js](../index.js):
 
 1. Fetch data via `fetchDatos(cuprId)` from [iberdrolaClient.js](../src/iberdrolaClient.js)
 2. Validate response structure with `validateResponse()`
-3. Persist to Supabase: `saveRaw()` → `charge_logs` table, `saveParsed()` → `charge_logs_parsed` table
+3. Persist to Supabase: `saveSnapshot()` → `station_snapshots` table, `saveStationMetadata()` → `station_metadata` table
 
 **Critical pattern**: Always validate before persisting. If validation fails, skip DB inserts and set `process.exitCode = 1`.
 
@@ -74,8 +74,8 @@ const SUPABASE_HEADERS = {
 
 **Two tables**:
 
-1. `charge_logs` - raw responses (`cp_id`, `status`, `full_json`)
-2. `charge_logs_parsed` - normalized data (11 columns: `cp_id`, `cp_name`, `schedule`, `port1_status`, `port1_power_kw`, `port1_update_date`, `port2_status`, `port2_power_kw`, `port2_update_date`, `overall_status`, `overall_update_date`)
+1. `station_snapshots` - throttled snapshots for analytics (deduplicated via hash)
+2. `station_metadata` - static station info (upserted on each run)
 
 **Error handling**: `insertRow()` returns `{ data, error }` tuple—always check for errors before proceeding.
 
