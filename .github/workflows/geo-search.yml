@@ -1,0 +1,49 @@
+name: Geo Search
+
+on:
+  workflow_dispatch:
+    inputs:
+      lat_min:
+        description: 'Minimum latitude'
+        required: true
+        type: string
+      lat_max:
+        description: 'Maximum latitude'
+        required: true
+        type: string
+      lon_min:
+        description: 'Minimum longitude'
+        required: true
+        type: string
+      lon_max:
+        description: 'Maximum longitude'
+        required: true
+        type: string
+
+jobs:
+  geo-search:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run geo search
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LAT_MIN: ${{ github.event.inputs.lat_min }}
+          LAT_MAX: ${{ github.event.inputs.lat_max }}
+          LON_MIN: ${{ github.event.inputs.lon_min }}
+          LON_MAX: ${{ github.event.inputs.lon_max }}
+        run: node src/geoSearch.js

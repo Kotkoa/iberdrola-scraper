@@ -1,0 +1,28 @@
+{
+  "entidad": [
+    {
+      "cpId": 140671,
+      "locationData": {
+        "cuprId": 144569,
+        "cuprName": "Paseo Cervantes 10 AYTO PEGO - 01",
+        "latitude": 38.839266,
+        "longitude": -0.120815,
+        "situationCode": "OPER",
+        "supplyPointData": {
+          "cpAddress": {
+            "streetName": "Cervantes (Ayto. Pego)",
+            "townName": "PEGO",
+            "regionName": "ALICANTE",
+            "streetNum": "10"
+          }
+        }
+      },
+      "cpStatus": {
+        "statusCode": "AVAILABLE"
+      },
+      "socketNum": 2
+    }
+  ],
+  "seguro": true,
+  "errorAjax": null
+}
