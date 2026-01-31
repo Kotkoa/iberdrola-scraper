@@ -195,6 +195,58 @@ describe('supabaseService', () => {
     })
   })
 
+  describe('computePriceFields', () => {
+    const { computePriceFields } = require('../src/supabaseService')
+
+    test('returns null/false when both prices are null', () => {
+      const result = computePriceFields(null, null)
+      assert.strictEqual(result.isFree, null)
+      assert.strictEqual(result.priceVerified, false)
+    })
+
+    test('returns isFree=true when port1 price is 0', () => {
+      const result = computePriceFields(0, null)
+      assert.strictEqual(result.isFree, true)
+      assert.strictEqual(result.priceVerified, true)
+    })
+
+    test('returns isFree=true when port2 price is 0', () => {
+      const result = computePriceFields(null, 0)
+      assert.strictEqual(result.isFree, true)
+      assert.strictEqual(result.priceVerified, true)
+    })
+
+    test('returns isFree=true when both prices are 0', () => {
+      const result = computePriceFields(0, 0)
+      assert.strictEqual(result.isFree, true)
+      assert.strictEqual(result.priceVerified, true)
+    })
+
+    test('returns isFree=false when port1 price > 0', () => {
+      const result = computePriceFields(0.39, null)
+      assert.strictEqual(result.isFree, false)
+      assert.strictEqual(result.priceVerified, true)
+    })
+
+    test('returns isFree=false when port2 price > 0', () => {
+      const result = computePriceFields(null, 0.25)
+      assert.strictEqual(result.isFree, false)
+      assert.strictEqual(result.priceVerified, true)
+    })
+
+    test('returns isFree=false when any price > 0', () => {
+      const result = computePriceFields(0, 0.39)
+      assert.strictEqual(result.isFree, false)
+      assert.strictEqual(result.priceVerified, true)
+    })
+
+    test('returns isFree=false when both prices > 0', () => {
+      const result = computePriceFields(0.39, 0.39)
+      assert.strictEqual(result.isFree, false)
+      assert.strictEqual(result.priceVerified, true)
+    })
+  })
+
   describe('buildSocketDetails', () => {
     const { buildSocketDetails } = require('../src/supabaseService')
 

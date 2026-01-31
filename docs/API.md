@@ -59,6 +59,8 @@ CREATE TABLE station_metadata (
   latitude NUMERIC,
   longitude NUMERIC,
   address_full TEXT,
+  is_free BOOLEAN,                    -- TRUE if all prices = 0, FALSE if any > 0, NULL if unknown
+  price_verified BOOLEAN DEFAULT false, -- TRUE after scraper verifies pricing
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 ```
@@ -518,6 +520,54 @@ VITE_CHECK_SUB_URL=/functions/v1/check-subscription
 
 The scraper is a Node.js service that fetches EV charging point data from Iberdrola's public API and persists it to Supabase via REST API. Runs every 5 minutes via GitHub Actions cron.
 
+### GitHub Actions Workflow
+
+**File**: `.github/workflows/scraper.yml`
+
+**Triggers**:
+- **Schedule**: Every 5 minutes (`*/5 * * * *`) — fetches default station (144569)
+- **Manual (workflow_dispatch)**: Optional `cupr_id` input to fetch any station
+
+```yaml
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      cupr_id:
+        description: 'CUPR ID of the station (optional, default: 144569)'
+        required: false
+        type: string
+```
+
+**Behavior**:
+- Cron trigger → `CUPR_ID=144569`
+- Manual trigger without input → `CUPR_ID=144569`
+- Manual trigger with `cupr_id=150000` → `CUPR_ID=150000`
+
+### Triggering Scraper via GitHub API
+
+```typescript
+async function checkStation(cuprId: number, token: string): Promise<void> {
+  await fetch(
+    'https://api.github.com/repos/{owner}/{repo}/actions/workflows/scraper.yml/dispatches',
+    {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ref: 'main',
+        inputs: { cupr_id: String(cuprId) },
+      }),
+    }
+  )
+}
+```
+
+**Note**: Requires GitHub PAT (Personal Access Token) with `workflow` scope.
+
 ### Architecture
 
 ```
@@ -954,7 +1004,28 @@ async function saveStationMetadata(
 | `port2_socket_details` | JSONB | socket metadata object |
 | `latitude` | NUMERIC | `locationData.latitude` |
 | `longitude` | NUMERIC | `locationData.longitude` |
+| `is_free` | BOOLEAN | computed from port prices (see below) |
+| `price_verified` | BOOLEAN | `true` if at least one price is non-null |
 | `updated_at` | TIMESTAMPTZ | `new Date().toISOString()` |
+
+**is_free Calculation**:
+
+```javascript
+const port1Price = port1Physical?.appliedRate?.recharge?.finalPrice ?? null
+const port2Price = port2Physical?.appliedRate?.recharge?.finalPrice ?? null
+
+let isFree = null
+let priceVerified = false
+
+if (port1Price !== null || port2Price !== null) {
+  priceVerified = true
+  if ((port1Price !== null && port1Price > 0) || (port2Price !== null && port2Price > 0)) {
+    isFree = false
+  } else {
+    isFree = true
+  }
+}
+```
 
 **Socket Details Schema**:
 

@@ -364,6 +364,27 @@ async function upsertRow(table, payload, onConflict) {
 }
 
 /**
+ * Compute is_free and price_verified from port prices
+ * @param {number|null} port1Price - Port 1 price per kWh
+ * @param {number|null} port2Price - Port 2 price per kWh
+ * @returns {{isFree: boolean|null, priceVerified: boolean}}
+ */
+function computePriceFields(port1Price, port2Price) {
+  if (port1Price === null && port2Price === null) {
+    return { isFree: null, priceVerified: false }
+  }
+
+  const hasPositivePrice =
+    (port1Price !== null && port1Price > 0) ||
+    (port2Price !== null && port2Price > 0)
+
+  return {
+    isFree: !hasPositivePrice,
+    priceVerified: true,
+  }
+}
+
+/**
  * Build socket details object for station_metadata
  * @param {PhysicalSocket|null} physicalSocket
  * @param {LogicalSocket|null} logicalSocket
@@ -402,6 +423,10 @@ async function saveStationMetadata(detailJson) {
     const port1Physical = port1Logical?.physicalSocket?.[0] ?? null
     const port2Physical = port2Logical?.physicalSocket?.[0] ?? null
 
+    const port1Price = port1Physical?.appliedRate?.recharge?.finalPrice ?? null
+    const port2Price = port2Physical?.appliedRate?.recharge?.finalPrice ?? null
+    const { isFree, priceVerified } = computePriceFields(port1Price, port2Price)
+
     const payload = {
       cp_id: first?.cpId ?? null,
       cupr_id: locationData?.cuprId ?? null,
@@ -420,6 +445,8 @@ async function saveStationMetadata(detailJson) {
       latitude: locationData?.latitude ?? null,
       longitude: locationData?.longitude ?? null,
       address_full: buildFullAddress(cpAddress),
+      is_free: isFree,
+      price_verified: priceVerified,
       updated_at: new Date().toISOString(),
     }
 
@@ -621,6 +648,7 @@ module.exports = {
   truncateError,
   buildFullAddress,
   buildSocketDetails,
+  computePriceFields,
   insertRow,
   upsertRow,
   callRpc,

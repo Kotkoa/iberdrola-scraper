@@ -3,7 +3,12 @@ name: Iberdrola Scraper
 on:
   schedule:
     - cron: '*/5 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      cupr_id:
+        description: 'CUPR ID of the station (optional, default: 144569)'
+        required: false
+        type: string
 
 jobs:
   run:
@@ -26,4 +31,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CUPR_ID: ${{ github.event.inputs.cupr_id || '144569' }}
         run: npm start
