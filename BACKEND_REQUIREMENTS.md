@@ -459,11 +459,36 @@ src/
    - Скрипт `src/subscriptionChecker.js` с sequential polling + cleanup
    - Workflow `subscription-checker.yml` (cron */10)
 
-6. **Тестирование**
-   - Вызвать poll-station напрямую
-   - Создать подписку через start-watch
-   - Дождаться изменения статуса
-   - Проверить push-уведомление
+6. **Тесты (на каждый новый функционал)**
+   - Unit тесты для RPC функций (SQL)
+   - Integration тесты для Edge Functions
+   - E2E тест: poll → subscribe → status change → push
+
+7. **Документация (на каждый новый функционал)**
+   - Обновить `docs/API.md` с новыми endpoints
+   - Добавить примеры запросов/ответов
+   - Описать коды ошибок и retry логику
+
+8. **Regression Testing (не сломать существующее)**
+   - Проверить `search-nearby` работает как раньше
+   - Проверить существующие подписки не потеряны
+   - Проверить `save-subscription` совместим с новым flow
+   - Проверить push-уведомления через существующий триггер
+
+---
+
+## Чеклист регрессии
+
+Перед деплоем каждого компонента проверить:
+
+| Функционал | Проверка | Статус |
+|------------|----------|--------|
+| `search-nearby` | Поиск станций возвращает результаты | ⬜ |
+| `save-subscription` | Создание подписки работает | ⬜ |
+| Push notifications | Триггер `notify_subscribers_on_port_available` срабатывает | ⬜ |
+| `station_snapshots` | Данные не потеряны после миграции | ⬜ |
+| `subscriptions` | Существующие подписки сохранены | ⬜ |
+| GitHub Actions | `scraper.yml` работает с `concurrency` | ⬜ |
 
 ---
 
@@ -625,6 +650,62 @@ await supabase
   .from('polling_tasks')
   .delete()
   .or('status.in.(completed,cancelled),expires_at.lt.now()');
+```
+
+---
+
+## Стратегия тестирования
+
+### По компонентам
+
+| Компонент | Тип теста | Что проверяем |
+|-----------|-----------|---------------|
+| `can_poll_station()` | Unit (SQL) | Возвращает false если < 5 мин |
+| `create_polling_task()` | Unit (SQL) | Создаёт задачу с правильными полями |
+| `poll-station` | Integration | Fetch → parse → upsert работает |
+| `start-watch` | Integration | Rate limit + fallback на кэш |
+| `subscription-checker` | E2E | Полный цикл poll → push |
+
+### Тестовые сценарии
+
+**poll-station:**
+```bash
+# Успешный poll
+curl -X POST .../poll-station -d '{"cupr_id":144569}'
+# Ожидание: ok:true, data с port1_status/port2_status
+
+# Невалидный cupr_id
+curl -X POST .../poll-station -d '{"cupr_id":999999}'
+# Ожидание: ok:false, error.code: NOT_FOUND или UPSTREAM_ERROR
+```
+
+**start-watch:**
+```bash
+# Первый запрос (fresh=true)
+curl -X POST .../start-watch -d '{"cupr_id":144569,...}'
+# Ожидание: ok:true, fresh:true
+
+# Повторный запрос < 5 мин (fresh=false)
+curl -X POST .../start-watch -d '{"cupr_id":144569,...}'
+# Ожидание: ok:true, fresh:false, next_poll_in:N
+```
+
+### Мок для Iberdrola API
+
+Для тестов без реального API:
+
+```javascript
+// test/mocks/iberdrolaApi.js
+const mockResponse = {
+  entidad: [{
+    cpId: 12345,
+    cpStatus: { statusCode: 'Available' },
+    logicalSocket: [
+      { statusCode: 'Available' },
+      { statusCode: 'Occupied' }
+    ]
+  }]
+};
 ```
 
 ---
