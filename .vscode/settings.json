@@ -1,0 +1,6 @@
+{
+  "cSpell.language": "en",
+  "cSpell.ignoreRegExpList": [
+    "/[А-Яа-яЁё]+/g"
+  ]
+}
