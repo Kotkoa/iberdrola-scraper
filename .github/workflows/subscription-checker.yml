@@ -1,22 +1,18 @@
-name: Iberdrola Scraper
+name: Subscription Checker
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/10 * * * *'
   workflow_dispatch:
-    inputs:
-      cupr_id:
-        description: 'CUPR ID of the station (optional, default: 144569)'
-        required: false
-        type: string
 
 concurrency:
   group: iberdrola-api
   cancel-in-progress: false
 
 jobs:
-  run:
+  check:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
     steps:
       - name: Checkout repository
@@ -30,10 +26,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run scraper
+      - name: Check subscriptions
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          CUPR_ID: ${{ github.event.inputs.cupr_id || '144569' }}
-        run: npm start
+        run: node src/subscriptionChecker.js

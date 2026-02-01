@@ -20,6 +20,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: iberdrola-api
+  cancel-in-progress: false
+
 jobs:
   geo-search:
     runs-on: ubuntu-latest
