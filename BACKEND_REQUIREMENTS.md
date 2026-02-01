@@ -3,9 +3,9 @@
 ## Цель
 
 Добавить недостающие компоненты для полноценного API фронтенда:
-- Получение станций по геолокации и ID
-- Триггер GitHub workflows через Edge Function (безопасное хранение PAT)
-- Polling подписок с автоматической остановкой после push-уведомления
+- Обновление статуса станции (polling Iberdrola API)
+- Подписка на изменения статуса с автоматическим polling
+- Push-уведомления при освобождении станции
 
 ---
 
@@ -20,7 +20,7 @@
 | `snapshot_throttle` | 180 | Дедупликация снапшотов |
 
 ### GitHub Workflows
-- `scraper.yml` — cron каждые 5 мин, input: `cupr_id`
+- `scraper.yml` — cron каждые 5 мин, input: `cupr_id` (**TODO:** добавить `concurrency`)
 - `geo-search.yml` — manual trigger, inputs: `lat_min`, `lat_max`, `lon_min`, `lon_max`
 
 ### Существующие Edge Functions (из docs/API.md)
@@ -34,77 +34,84 @@
 
 ---
 
-## Недостающие компоненты
+## API Response Format
 
-### 1. Edge Function: `trigger-workflow`
+Единый формат ответа для всех Edge Functions:
 
-**Назначение:** Прокси для безопасного вызова GitHub Actions
-
-**Почему нужно:** PAT нельзя хранить на фронтенде
-
-**API:**
-```
-POST /functions/v1/trigger-workflow
-
+```typescript
+// Успех
 {
-  "workflow": "scraper",      // или "geo-search"
-  "inputs": {
-    "cupr_id": "144569"       // или lat_min/lat_max/lon_min/lon_max
+  "ok": true,
+  "data": { ... }
+}
+
+// Ошибка
+{
+  "ok": false,
+  "error": {
+    "code": "RATE_LIMITED",        // машиночитаемый код
+    "message": "Too many requests", // человекочитаемое сообщение
+    "retry_after": 300              // опционально
   }
 }
-
-Response: { "success": true } или { "success": false, "error": "..." }
 ```
 
-**Secrets:**
-- `GITHUB_PAT` — Fine-grained PAT с правами Actions: Read and write
-- `GITHUB_REPO` — `owner/repo`
+**Коды ошибок:**
 
-**Файл:** `supabase/functions/trigger-workflow/index.ts`
+| Code | HTTP Status | Описание |
+|------|-------------|----------|
+| `VALIDATION_ERROR` | 400 | Неверные входные данные |
+| `UNAUTHORIZED` | 401 | Отсутствует/неверный токен |
+| `NOT_FOUND` | 404 | Ресурс не найден |
+| `RATE_LIMITED` | 429 | Превышен лимит запросов |
+| `UPSTREAM_ERROR` | 502 | Ошибка внешнего API (Iberdrola) |
+| `INTERNAL_ERROR` | 500 | Внутренняя ошибка сервера |
+
+**Фронтенд обработка:**
+
+```typescript
+const response = await fetch('/functions/v1/any-endpoint');
+const json = await response.json();
+
+if (json.ok) {
+  // Работаем с json.data
+} else {
+  // Показываем json.error.message
+  if (json.error.code === 'RATE_LIMITED') {
+    // Retry после json.error.retry_after секунд
+  }
+}
+```
 
 ---
 
-### 2. Edge Function: `get-stations`
+## Недостающие компоненты
 
-**Назначение:** Единый API для получения данных станций
+### Архитектура (чистое разделение)
 
-**Почему нужно:** Фронтенд должен получать станции с JOIN metadata + snapshots
-
-**API:**
 ```
-POST /functions/v1/get-stations
-
-// Вариант A: По геолокации
-{
-  "type": "geo",
-  "lat": 38.84,
-  "lon": -0.11,
-  "radius_km": 10
-}
-
-// Вариант B: По ID
-{
-  "type": "id",
-  "cp_id": 12345
-}
-// или
-{
-  "type": "id",
-  "cupr_id": 144569
-}
-
-Response: { "data": [...], "error": null }
+┌─────────────────────────────────────────────────────────────┐
+│  poll-station (чистая функция)                              │
+│  └─ ТОЛЬКО: fetch Iberdrola → parse → upsert snapshot       │
+├─────────────────────────────────────────────────────────────┤
+│  start-watch (подписка)                                     │
+│  └─ rate limit check → poll-station → subscription → task   │
+├─────────────────────────────────────────────────────────────┤
+│  subscription-checker (cron)                                │
+│  └─ rate limit check → poll-station → check status → push   │
+├─────────────────────────────────────────────────────────────┤
+│  search-nearby (уже есть)                                   │
+│  └─ поиск станций в радиусе из Supabase                    │
+└─────────────────────────────────────────────────────────────┘
 ```
-
-**Файл:** `supabase/functions/get-stations/index.ts`
 
 ---
 
-### 3. Edge Function: `poll-station`
+### 1. Edge Function: `poll-station`
 
-**Назначение:** Прямой polling станции через Iberdrola API
+**Назначение:** Чистая функция для polling одной станции
 
-**Почему нужно:** GitHub Actions слишком медленные для real-time polling (30+ сек delay)
+**Принцип:** Делает ТОЛЬКО одно — fetch + parse + upsert. Без rate limiting внутри.
 
 **API:**
 ```
@@ -115,9 +122,14 @@ POST /functions/v1/poll-station
 }
 
 Response: {
-  "success": true,
-  "snapshot": { cp_id, port1_status, port2_status, overall_status },
-  "raw": { ... }  // полный ответ Iberdrola
+  "ok": true,
+  "data": {
+    "cp_id": 12345,
+    "port1_status": "Available",
+    "port2_status": "Occupied",
+    "overall_status": "PartiallyOccupied",
+    "observed_at": "2025-01-31T10:30:00Z"
+  }
 }
 ```
 
@@ -128,6 +140,78 @@ Response: {
 4. Вернуть результат
 
 **Файл:** `supabase/functions/poll-station/index.ts`
+
+> **⚠️ TODO: Дублирование кода**
+>
+> Эта функция дублирует логику из `src/iberdrolaClient.js`:
+> - Headers (referer, origin, user-agent)
+> - Retry с exponential backoff
+> - Parsing ответа Iberdrola
+>
+> **Рефакторинг:** Вынести общую логику в shared модуль когда API стабилизируется.
+
+---
+
+### 2. Edge Function: `start-watch`
+
+**Назначение:** Подписка на изменение статуса станции
+
+**Логика:**
+1. Проверить rate limit через `can_poll_station()`
+2. Если можно — вызвать `poll-station` (свежие данные)
+3. Если rate limited — взять последний snapshot из базы
+4. Создать subscription + polling_task (всегда)
+5. Вернуть результат с флагом свежести
+
+**API:**
+```
+POST /functions/v1/start-watch
+
+{
+  "cupr_id": 144569,
+  "port": 1,                    // 1, 2 или null (любой)
+  "subscription": {
+    "endpoint": "https://fcm.googleapis.com/...",
+    "keys": {
+      "p256dh": "BNc...",
+      "auth": "tBH..."
+    }
+  }
+}
+
+Response: {
+  "ok": true,
+  "data": {
+    "subscription_id": "uuid",
+    "task_id": "uuid",
+    "current_status": {
+      "port1_status": "Occupied",
+      "port2_status": "Available",
+      "observed_at": "2025-01-31T10:30:00Z"
+    },
+    "fresh": true,              // false если взято из кэша
+    "next_poll_in": null        // секунд до следующего poll (если fresh=false)
+  }
+}
+
+// Пример когда rate limited (подписка всё равно создана):
+Response: {
+  "ok": true,
+  "data": {
+    "subscription_id": "uuid",
+    "task_id": "uuid",
+    "current_status": {
+      "port1_status": "Occupied",
+      "port2_status": "Available",
+      "observed_at": "2025-01-31T10:27:00Z"
+    },
+    "fresh": false,
+    "next_poll_in": 180         // данные обновятся через 3 мин
+  }
+}
+```
+
+**Файл:** `supabase/functions/start-watch/index.ts`
 
 ---
 
@@ -159,6 +243,7 @@ CREATE TABLE polling_tasks (
 
 CREATE INDEX idx_polling_tasks_active ON polling_tasks(status)
   WHERE status IN ('pending', 'running');
+CREATE INDEX idx_polling_tasks_cupr_id ON polling_tasks(cupr_id);
 ```
 
 ---
@@ -243,6 +328,10 @@ on:
     - cron: '*/10 * * * *'  # каждые 10 минут
   workflow_dispatch:
 
+concurrency:
+  group: iberdrola-api
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -274,31 +363,47 @@ ADD COLUMN IF NOT EXISTS target_status TEXT DEFAULT 'Available';
 
 ## Интеграция с фронтендом
 
-### Сценарий 1: Получить станции рядом
+### Сценарий 1: Поиск станций рядом
 ```
-Frontend → POST /functions/v1/get-stations { type: "geo", lat, lon, radius_km }
-         ← { data: [{ cp_id, name, port1_status, ... }] }
+Frontend → POST /functions/v1/search-nearby { lat, lon, radius_km }
+         ← { ok: true, data: [{ cp_id, name, port1_status, distance_km, ... }] }
+
+Источник: Supabase (кэш)
+Скорость: ~100ms
 ```
 
-### Сценарий 2: Получить одну станцию
+### Сценарий 2: Обновить статус станции
 ```
-Frontend → POST /functions/v1/get-stations { type: "id", cp_id: 12345 }
-         ← { data: [{ cp_id, name, port1_status, port2_status, ... }] }
+Frontend → POST /functions/v1/poll-station { cupr_id: 144569 }
+         ← { ok: true, data: { port1_status, port2_status, ... } }
+
+Источник: Iberdrola API (свежие данные)
+Скорость: 1-3 сек
 ```
 
-### Сценарий 3: Подписка с polling
+### Сценарий 3: Подписаться на уведомление
 ```
-1. Frontend → POST /functions/v1/save-subscription { stationId, subscription, portNumber }
-2. Backend  → INSERT subscriptions
-3. Backend  → CALL create_polling_task(subscription_id, portNumber, 'Available')
-4. Poller   → каждые 10 мин проверяет станцию
-5. Poller   → статус изменился → send-push → mark completed
+Frontend → POST /functions/v1/start-watch { cupr_id, port, subscription }
+         ← { ok: true, data: { subscription_id, task_id, current_status, fresh, next_poll_in } }
+
+Что происходит:
+1. start-watch проверяет rate limit
+2. Если можно — poll-station (свежие данные, fresh=true)
+3. Если rate limited — берёт snapshot из кэша (fresh=false, next_poll_in=N)
+4. Создаёт subscription + polling_task (ВСЕГДА)
+5. subscription-checker (cron */10) проверяет статус
+6. Статус изменился → send-push → task completed
+
+Фронтенд при fresh=false может показать:
+"Данные обновятся через {next_poll_in} секунд"
 ```
 
-### Сценарий 4: Запустить scraper для станции
+### Сценарий 4: Детали станции
 ```
-Frontend → POST /functions/v1/trigger-workflow { workflow: "scraper", inputs: { cupr_id: "150000" } }
-         ← { success: true }
+Frontend → POST /functions/v1/station-details { cp_id: 12345 }
+         ← { ok: true, data: { cp_id, name, address, ports, ... } }
+
+Источник: Supabase (кэш)
 ```
 
 ---
@@ -308,12 +413,10 @@ Frontend → POST /functions/v1/trigger-workflow { workflow: "scraper", inputs: 
 ```
 supabase/
   functions/
-    trigger-workflow/
-      index.ts
-    get-stations/
-      index.ts
     poll-station/
-      index.ts
+      index.ts        # чистая функция: fetch → parse → upsert
+    start-watch/
+      index.ts        # rate limit → poll → subscription → task
 
 src/
   subscriptionChecker.js
@@ -328,8 +431,6 @@ src/
 
 | Secret | Назначение |
 |--------|------------|
-| `GITHUB_PAT` | Fine-grained PAT для workflow dispatch |
-| `GITHUB_REPO` | `kotkoa/iberdrola-scraper` |
 | `VAPID_PUBLIC_KEY` | Уже есть для push |
 | `VAPID_PRIVATE_KEY` | Уже есть для push |
 
@@ -340,23 +441,27 @@ src/
 1. **Миграция БД**
    - Таблица `polling_tasks`
    - ALTER subscriptions ADD target_status
+   - RPC функция `can_poll_station()`
 
 2. **RPC функции**
    - `create_polling_task()`
    - `get_active_polling_tasks()`
-   - `get_station_with_snapshot()`
 
-3. **Edge Functions**
-   - `trigger-workflow` — прокси GitHub PAT
-   - `get-stations` — API для фронтенда
-   - `poll-station` — прямой polling Iberdrola
+3. **Rate Limiting**
+   - Добавить `concurrency` в `scraper.yml`
+   - Добавить `concurrency` в `subscription-checker.yml`
 
-4. **Subscription Checker**
-   - Скрипт `src/subscriptionChecker.js`
+4. **Edge Functions**
+   - `poll-station` — чистая функция (fetch → parse → upsert)
+   - `start-watch` — подписка с rate limit
+
+5. **Subscription Checker**
+   - Скрипт `src/subscriptionChecker.js` с sequential polling + cleanup
    - Workflow `subscription-checker.yml` (cron */10)
 
-5. **Тестирование**
-   - Создать подписку
+6. **Тестирование**
+   - Вызвать poll-station напрямую
+   - Создать подписку через start-watch
    - Дождаться изменения статуса
    - Проверить push-уведомление
 
@@ -364,26 +469,163 @@ src/
 
 ## Верификация
 
-1. **trigger-workflow**:
-   ```bash
-   curl -X POST https://xxx.supabase.co/functions/v1/trigger-workflow \
-     -H "Authorization: Bearer ANON_KEY" \
-     -d '{"workflow":"scraper","inputs":{"cupr_id":"144569"}}'
-   ```
-
-2. **get-stations**:
-   ```bash
-   curl -X POST https://xxx.supabase.co/functions/v1/get-stations \
-     -H "Authorization: Bearer ANON_KEY" \
-     -d '{"type":"geo","lat":38.84,"lon":-0.11,"radius_km":10}'
-   ```
-
-3. **poll-station**:
+1. **poll-station** (обновить статус):
    ```bash
    curl -X POST https://xxx.supabase.co/functions/v1/poll-station \
-     -H "Authorization: Bearer SERVICE_ROLE_KEY" \
+     -H "Authorization: Bearer ANON_KEY" \
      -d '{"cupr_id":144569}'
    ```
+
+2. **start-watch** (подписаться):
+   ```bash
+   curl -X POST https://xxx.supabase.co/functions/v1/start-watch \
+     -H "Authorization: Bearer ANON_KEY" \
+     -d '{"cupr_id":144569,"port":1,"subscription":{"endpoint":"...","keys":{...}}}'
+   ```
+
+3. **search-nearby** (уже есть):
+   ```bash
+   curl -X POST https://xxx.supabase.co/functions/v1/search-nearby \
+     -H "Authorization: Bearer ANON_KEY" \
+     -d '{"lat":38.84,"lon":-0.11,"radius_km":10}'
+   ```
+
+---
+
+## Rate Limiting Strategy
+
+### Цель
+
+Защита от бана Iberdrola API при множественных источниках запросов.
+
+### Лимиты
+
+| Параметр | Значение | Обоснование |
+|----------|----------|-------------|
+| Базовый polling interval | 10 мин | Баланс между актуальностью и нагрузкой |
+| Min interval per station | 5 мин | Защита от дублей при ручном триггере |
+| Burst limit | 1 req/sec | Защита при batch polling подписок |
+| Max concurrent workflows | 1 | `concurrency` в GitHub Actions |
+
+### Расчёт нагрузки
+
+| Сценарий | Запросов/час | Запросов/день |
+|----------|--------------|---------------|
+| 1 станция (scraper cron) | 12 | 288 |
+| 10 активных подписок | 60 | 1440 |
+| 50 активных подписок | 300 | 7200 |
+| 100 активных подписок | 600 | 14400 |
+
+### Реализация
+
+#### 1. Concurrency в GitHub Actions
+
+```yaml
+# scraper.yml
+concurrency:
+  group: iberdrola-api
+  cancel-in-progress: false
+
+# subscription-checker.yml
+concurrency:
+  group: iberdrola-api
+  cancel-in-progress: false
+```
+
+Гарантирует что только один workflow работает с Iberdrola API одновременно.
+
+#### 2. RPC функция: `can_poll_station`
+
+```sql
+CREATE FUNCTION can_poll_station(p_cupr_id INTEGER)
+RETURNS BOOLEAN AS $$
+  SELECT NOT EXISTS (
+    SELECT 1 FROM station_snapshots
+    WHERE cupr_id = p_cupr_id
+    AND observed_at > now() - INTERVAL '5 minutes'
+  );
+$$ LANGUAGE sql;
+```
+
+Проверяет прошло ли 5 минут с последнего опроса станции.
+
+#### 3. Sequential polling с паузой
+
+```javascript
+// src/subscriptionChecker.js
+
+const tasks = await getActivePollingTasks();
+
+for (const task of tasks) {
+  const canPoll = await supabase.rpc('can_poll_station', {
+    p_cupr_id: task.cupr_id
+  });
+
+  if (canPoll) {
+    await pollStation(task.cupr_id);
+    await sleep(1000); // 1 секунда между запросами
+  }
+}
+```
+
+#### 4. Graceful rate limit в start-watch Edge Function
+
+```typescript
+// start-watch/index.ts
+
+const { data: canPoll } = await supabase.rpc('can_poll_station', {
+  p_cupr_id: cuprId
+});
+
+let snapshot;
+let fresh = true;
+let nextPollIn = null;
+
+if (canPoll) {
+  // Свежие данные от Iberdrola
+  snapshot = await pollStation(cuprId);
+} else {
+  // Rate limited → берём из кэша
+  fresh = false;
+  snapshot = await getLastSnapshot(cuprId);
+  nextPollIn = calculateSecondsUntilNextPoll(snapshot.observed_at);
+}
+
+// Подписка создаётся ВСЕГДА (не блокируем пользователя)
+const subscription = await createSubscription(...);
+const task = await createPollingTask(...);
+
+return Response.json({
+  ok: true,
+  data: {
+    subscription_id: subscription.id,
+    task_id: task.id,
+    current_status: {
+      port1_status: snapshot.port1_status,
+      port2_status: snapshot.port2_status,
+      observed_at: snapshot.observed_at
+    },
+    fresh,
+    next_poll_in: nextPollIn
+  }
+});
+```
+
+> **Важно:** `poll-station` — чистая функция БЕЗ rate limiting.
+> `start-watch` проверяет rate limit, но не блокирует подписку — берёт кэш.
+> `subscription-checker` проверяет rate limit перед каждым poll.
+
+#### 5. Cleanup expired polling_tasks
+
+Добавить в `subscription-checker.js`:
+
+```javascript
+// Удалить истёкшие и завершённые задачи
+await supabase
+  .from('polling_tasks')
+  .delete()
+  .or('status.in.(completed,cancelled),expires_at.lt.now()');
+```
 
 ---
 
