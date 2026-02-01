@@ -75,7 +75,7 @@ const SUPABASE_HEADERS = {
 
 **Two tables**:
 
-1. `station_snapshots` - throttled snapshots for analytics (deduplicated via hash)
+1. `station_snapshots` - current station status (upserted by cp_id, one row per station)
 2. `station_metadata` - static station info (upserted on each run)
 
 **Error handling**: `insertRow()` returns `{ data, error }` tuple—always check for errors before proceeding.
@@ -193,7 +193,6 @@ node index.js      # Direct execution
 4. **Headers required**: Iberdrola API may reject requests without proper `referer` and `origin`
 5. **Native fetch only**: No external HTTP libraries—requires Node 18+ for built-in fetch
 6. **No rate limiting**: GitHub Actions cron runs every 5 min—avoid hitting API limits
-7. **Duplicate inserts**: No deduplication—every run creates new rows in both tables
 
 ## Extension Points
 

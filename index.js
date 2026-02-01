@@ -46,9 +46,7 @@ async function main() {
     process.exitCode = 1
   }
 
-  if (snapshotResult.skipped) {
-    console.log('DONE — status unchanged, skipped snapshot (dedup)')
-  } else if (snapshotResult.success && metadataResult.success) {
+  if (snapshotResult.success && metadataResult.success) {
     console.log('DONE — all data saved successfully')
   }
 }

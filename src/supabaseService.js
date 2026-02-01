@@ -506,108 +506,23 @@ async function callRpc(functionName, params) {
 }
 
 /**
- * Compute snapshot hash via Supabase RPC
- * @param {{port1Status: string|null, port1PowerKw: number|null, port1PriceKwh: number|null, port2Status: string|null, port2PowerKw: number|null, port2PriceKwh: number|null, overallStatus: string|null, emergencyStopPressed: boolean|null, situationCode: string|null}} parsed
- * @returns {Promise<string|null>}
- */
-async function computeSnapshotHash(parsed) {
-  const { data, error } = await callRpc('compute_snapshot_hash', {
-    p1_status: parsed.port1Status,
-    p1_power: parsed.port1PowerKw,
-    p1_price: parsed.port1PriceKwh,
-    p2_status: parsed.port2Status,
-    p2_power: parsed.port2PowerKw,
-    p2_price: parsed.port2PriceKwh,
-    overall: parsed.overallStatus,
-    emergency: parsed.emergencyStopPressed ?? false,
-    situation: parsed.situationCode,
-  })
-
-  if (error) {
-    console.error('Failed to compute snapshot hash:', error)
-    return null
-  }
-
-  return data
-}
-
-/**
- * Check if snapshot should be stored (throttle check via RPC)
- * @param {number} cpId - charging point ID
- * @param {string} hash - payload hash
- * @param {number} minutes - throttle window in minutes
- * @returns {Promise<boolean>}
- */
-async function shouldStoreSnapshot(cpId, hash, minutes = 5) {
-  const { data, error } = await callRpc('should_store_snapshot', {
-    p_cp_id: cpId,
-    p_hash: hash,
-    p_minutes: minutes,
-  })
-
-  if (error) {
-    console.error('Failed to check throttle:', error)
-    return true
-  }
-
-  return data === true
-}
-
-/**
- * Update snapshot throttle record
- * @param {number} cpId - charging point ID
- * @param {string} hash - payload hash
- * @returns {Promise<{success: boolean, error: any}>}
- */
-async function updateThrottle(cpId, hash) {
-  const { error } = await upsertRow(
-    'snapshot_throttle',
-    {
-      cp_id: cpId,
-      last_payload_hash: hash,
-      last_snapshot_at: new Date().toISOString(),
-    },
-    'cp_id'
-  )
-
-  if (error) {
-    console.error('Failed to update throttle:', error)
-    return { success: false, error }
-  }
-
-  return { success: true, error: null }
-}
-
-/**
- * Save station snapshot to station_snapshots table (with deduplication)
+ * Save station snapshot to station_snapshots table (upsert by cp_id)
  * @param {IberdrolaResponse} detailJson
- * @returns {Promise<{success: boolean, skipped: boolean, error: any}>}
+ * @returns {Promise<{success: boolean, error: any}>}
  */
 async function saveSnapshot(detailJson) {
   try {
     const parsed = parseEntidad(detailJson)
 
     if (!parsed.cpId) {
-      return { success: false, skipped: false, error: new Error('cpId is missing') }
+      return { success: false, error: new Error('cpId is missing') }
     }
 
-    const hash = await computeSnapshotHash(parsed)
-    if (!hash) {
-      return { success: false, skipped: false, error: new Error('Failed to compute hash') }
-    }
+    console.log('UPSERTING INTO SUPABASE: station_snapshots...')
 
-    const shouldStore = await shouldStoreSnapshot(parsed.cpId, hash)
-    if (!shouldStore) {
-      console.log('SKIPPING station_snapshots: status unchanged (throttled)')
-      return { success: true, skipped: true, error: null }
-    }
-
-    console.log('INSERTING INTO SUPABASE: station_snapshots (status changed)...')
-
-    const { data, error } = await insertRow('station_snapshots', {
+    const { data, error } = await upsertRow('station_snapshots', {
       cp_id: parsed.cpId,
       source: 'scraper',
-      payload_hash: hash,
       port1_status: parsed.port1Status,
       port1_power_kw: parsed.port1PowerKw,
       port1_price_kwh: parsed.port1PriceKwh,
@@ -619,21 +534,19 @@ async function saveSnapshot(detailJson) {
       overall_status: parsed.overallStatus,
       emergency_stop_pressed: parsed.emergencyStopPressed ?? false,
       situation_code: parsed.situationCode,
-    })
+    }, 'cp_id')
 
     if (error) {
       console.error('SUPABASE ERROR (station_snapshots):', error)
-      return { success: false, skipped: false, error }
+      return { success: false, error }
     }
 
     console.log('SUPABASE station_snapshots RESULT:', { data })
 
-    await updateThrottle(parsed.cpId, hash)
-
-    return { success: true, skipped: false, error: null }
+    return { success: true, error: null }
   } catch (err) {
     console.error('FAILED TO SAVE INTO station_snapshots', err)
-    return { success: false, skipped: false, error: err }
+    return { success: false, error: err }
   }
 }
 
