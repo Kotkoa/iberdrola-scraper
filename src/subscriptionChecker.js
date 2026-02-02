@@ -15,6 +15,15 @@ async function getActiveTasks() {
   return data || []
 }
 
+async function getExpiredTasks() {
+  const { data, error } = await callRpc('get_expired_polling_tasks', {})
+  if (error) {
+    console.error('Failed to get expired tasks:', error.message)
+    return []
+  }
+  return data || []
+}
+
 async function canPollStation(cuprId) {
   const { data, error } = await callRpc('can_poll_station', { p_cupr_id: cuprId })
   if (error) {
@@ -79,7 +88,41 @@ async function sendPushNotification(subscriptionId, stationName, portStatus) {
       console.log(`Push notification sent for subscription ${subscriptionId}`)
     }
   } catch (err) {
-    console.error('Push notification error:', err.message)
+    console.error('Push notification error:', err instanceof Error ? err.message : String(err))
+  }
+}
+
+async function sendExpirationNotification(subscriptionId, targetPort) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('Missing Supabase credentials for push notification')
+    return
+  }
+
+  const url = `${SUPABASE_URL}/functions/v1/send-push-notification`
+  const portText = targetPort ? `Port ${targetPort}` : 'Any port'
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+      body: JSON.stringify({
+        subscription_id: subscriptionId,
+        title: 'Watch Expired',
+        body: `${portText} did not become available within 12 hours. Tap to subscribe again.`,
+      }),
+    })
+
+    if (!res.ok) {
+      const text = await res.text()
+      console.error('Expiration notification failed:', text.slice(0, 200))
+    } else {
+      console.log(`Expiration notification sent for subscription ${subscriptionId}`)
+    }
+  } catch (err) {
+    console.error('Expiration notification error:', err instanceof Error ? err.message : String(err))
   }
 }
 
@@ -206,15 +249,33 @@ async function processTask(task) {
   }
 }
 
+async function processExpiredTask(task) {
+  const { task_id, subscription_id, target_port } = task
+
+  console.log(`Processing expired task ${task_id}`)
+  await sendExpirationNotification(subscription_id, target_port)
+  await completeTask(task_id)
+}
+
 async function main() {
   console.log('=== Subscription Checker Started ===')
   console.log(`Time: ${new Date().toISOString()}`)
 
+  // Process expired tasks first (send expiration notifications)
+  const expiredTasks = await getExpiredTasks()
+  console.log(`Found ${expiredTasks.length} expired polling tasks`)
+
+  for (const task of expiredTasks) {
+    await processExpiredTask(task)
+    await sleep(500)
+  }
+
+  // Process active tasks
   const tasks = await getActiveTasks()
   console.log(`Found ${tasks.length} active polling tasks`)
 
-  if (tasks.length === 0) {
-    console.log('No active tasks to process')
+  if (tasks.length === 0 && expiredTasks.length === 0) {
+    console.log('No tasks to process')
     return
   }
 
