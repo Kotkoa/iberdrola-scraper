@@ -1,0 +1,90 @@
+name: Station Price Verification
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: 'Stations to verify per run (1-5, default 1)'
+        required: false
+        default: '1'
+        type: string
+
+concurrency:
+  group: station-price-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Enqueue unprocessed stations
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '1' }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST "$SUPABASE_URL/rest/v1/rpc/auto_enqueue_unprocessed" \
+            -H "Content-Type: application/json" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -d "{\"p_limit\": $BATCH_SIZE}")
+
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Enqueue status: $http_code"
+          echo "Enqueued: $body"
+
+          if [ "$http_code" -ge 400 ]; then
+            echo "::error::Enqueue failed with status $http_code"
+            exit 1
+          fi
+
+      - name: Run verification batch
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '1' }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST "$SUPABASE_URL/functions/v1/station-verification" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -d "{\"mode\": \"run\", \"batch_size\": $BATCH_SIZE}")
+
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Run status: $http_code"
+          echo "Run response: $body"
+
+          if [ "$http_code" -ge 400 ]; then
+            echo "::error::Verification run failed with status $http_code"
+            exit 1
+          fi
+
+      - name: Reconcile verification queue
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST "$SUPABASE_URL/functions/v1/station-verification" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -d '{"mode": "reconcile"}')
+
+          http_code=$(echo "$response" | tail -1)
+          body=$(echo "$response" | sed '$d')
+
+          echo "Reconcile status: $http_code"
+          echo "Reconcile response: $body"
+
+          if [ "$http_code" -ge 400 ]; then
+            echo "::error::Reconcile failed with status $http_code"
+            exit 1
+          fi
