@@ -125,25 +125,18 @@ async function main() {
     return
   }
 
-  let upserted = 0
-  let errors = 0
+  const payloads = stations.map(buildStationPayload)
 
-  for (const station of stations) {
-    const payload = buildStationPayload(station)
+  const { error } = await upsertRow('station_metadata', payloads, 'cp_id')
 
-    const { error } = await upsertRow('station_metadata', payload, 'cp_id')
-
-    if (error) {
-      console.error(`Error upserting cp_id ${station.cpId}:`, truncateError(error))
-      errors++
-    } else {
-      upserted++
-    }
+  if (error) {
+    console.error('Batch upsert error:', truncateError(error))
+    console.log(`Completed: 0 stations upserted, ${payloads.length} errors`)
+  } else {
+    console.log(`Completed: ${payloads.length} stations upserted, 0 errors`)
   }
 
-  console.log(`Completed: ${upserted} stations upserted, ${errors} errors`)
-
-  if (errors > 0) {
+  if (error) {
     process.exitCode = 1
   }
 }

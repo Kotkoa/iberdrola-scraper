@@ -34,13 +34,16 @@ async function main() {
     return
   }
 
-  const snapshotResult = await saveSnapshot(detailJson)
+  const [snapshotResult, metadataResult] = await Promise.all([
+    saveSnapshot(detailJson),
+    saveStationMetadata(detailJson),
+  ])
+
   if (!snapshotResult.success) {
     console.error('FAILED TO SAVE SNAPSHOT')
     process.exitCode = 1
   }
 
-  const metadataResult = await saveStationMetadata(detailJson)
   if (!metadataResult.success) {
     console.error('FAILED TO SAVE STATION METADATA')
     process.exitCode = 1
