@@ -502,6 +502,7 @@ async function saveSnapshot(detailJson) {
     const { data, error } = await upsertRow('station_snapshots', {
       cp_id: parsed.cpId,
       source: 'scraper',
+      observed_at: new Date().toISOString(),
       port1_status: parsed.port1Status,
       port1_power_kw: parsed.port1PowerKw,
       port1_price_kwh: parsed.port1PriceKwh,
