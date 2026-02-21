@@ -1,13 +1,13 @@
-name: Subscription Checker
+name: Subscription Checker (DISABLED — replaced by notification-polling.yml Path B)
 
 on:
-  schedule:
-    - cron: '*/10 * * * *'
+  # schedule:
+  #   - cron: '*/10 * * * *'
   workflow_dispatch:
 
-concurrency:
-  group: iberdrola-api
-  cancel-in-progress: false
+# concurrency:
+#   group: iberdrola-api
+#   cancel-in-progress: false
 
 jobs:
   check:
