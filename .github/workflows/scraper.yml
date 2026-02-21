@@ -11,7 +11,7 @@ on:
         type: string
 
 concurrency:
-  group: iberdrola-api
+  group: ${{ github.event_name == 'schedule' && 'scraper-cron' || 'scraper-verify' }}
   cancel-in-progress: false
 
 jobs:

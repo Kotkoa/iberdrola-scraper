@@ -21,7 +21,7 @@ on:
         type: string
 
 concurrency:
-  group: iberdrola-api
+  group: scraper-verify
   cancel-in-progress: false
 
 jobs:
