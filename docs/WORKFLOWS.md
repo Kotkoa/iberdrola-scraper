@@ -11,13 +11,13 @@ All workflows orchestrate data collection from Iberdrola API and processing in S
 │  scraper.yml ──────────────┐                                        │
 │  (*/5 min, station 144569) │                                        │
 │                            ├── concurrency: iberdrola-api ──► Iberdrola API
-│  subscription-checker.yml ─┤   (max 1 running + 1 pending)         │
-│  (*/10 min, active subs)   │                                        │
+│                           ─┤   (max 1 running + 1 pending)          │
+│                            │                                        │
 │                            │                                        │
 │  geo-search.yml ───────────┘                                        │
 │  (manual, bbox search)                                              │
 │                                                                     │
-│  notification-polling.yml ────► Edge Function: process-polling       │
+│  notification-polling.yml ────► Edge Function: process-polling      │
 │  (*/5 min)                     └──► Supabase DB                     │
 │                                                                     │
 │  station-price-verification.yml ──► RPC: auto_enqueue_unprocessed   │

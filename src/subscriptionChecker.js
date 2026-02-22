@@ -59,7 +59,7 @@ async function completeTask(taskId) {
   }
 }
 
-async function sendPushNotification(subscriptionId, stationName, portStatus) {
+async function sendPushNotification(stationId, portNumber) {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error('Missing Supabase credentials for push notification')
     return
@@ -75,9 +75,8 @@ async function sendPushNotification(subscriptionId, stationName, portStatus) {
         Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
       },
       body: JSON.stringify({
-        subscription_id: subscriptionId,
-        title: 'Charging Port Available!',
-        body: `${stationName || 'Station'} now has an available port: ${portStatus}`,
+        stationId: stationId,
+        portNumber: portNumber,
       }),
     })
 
@@ -85,72 +84,25 @@ async function sendPushNotification(subscriptionId, stationName, portStatus) {
       const text = await res.text()
       console.error('Push notification failed:', text.slice(0, 200))
     } else {
-      console.log(`Push notification sent for subscription ${subscriptionId}`)
+      console.log(`Push notification sent for station ${stationId} port ${portNumber}`)
     }
   } catch (err) {
     console.error('Push notification error:', err instanceof Error ? err.message : String(err))
   }
 }
 
-async function sendExpirationNotification(subscriptionId, targetPort) {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    console.error('Missing Supabase credentials for push notification')
-    return
-  }
-
-  const url = `${SUPABASE_URL}/functions/v1/send-push-notification`
-  const portText = targetPort ? `Port ${targetPort}` : 'Any port'
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      },
-      body: JSON.stringify({
-        subscription_id: subscriptionId,
-        title: 'Watch Expired',
-        body: `${portText} did not become available within 12 hours. Tap to subscribe again.`,
-      }),
-    })
-
-    if (!res.ok) {
-      const text = await res.text()
-      console.error('Expiration notification failed:', text.slice(0, 200))
-    } else {
-      console.log(`Expiration notification sent for subscription ${subscriptionId}`)
-    }
-  } catch (err) {
-    console.error('Expiration notification error:', err instanceof Error ? err.message : String(err))
-  }
-}
 
 function checkTargetReached(parsed, targetPort, targetStatus) {
+  const target = targetStatus?.toUpperCase()
   if (targetPort === 1) {
-    return parsed.port1Status === targetStatus
+    return parsed.port1Status?.toUpperCase() === target
   }
   if (targetPort === 2) {
-    return parsed.port2Status === targetStatus
+    return parsed.port2Status?.toUpperCase() === target
   }
-  return parsed.port1Status === targetStatus || parsed.port2Status === targetStatus
+  return parsed.port1Status?.toUpperCase() === target || parsed.port2Status?.toUpperCase() === target
 }
 
-function getReachedPortStatus(parsed, targetPort, targetStatus) {
-  if (targetPort === 1 && parsed.port1Status === targetStatus) {
-    return `Port 1: ${parsed.port1Status}`
-  }
-  if (targetPort === 2 && parsed.port2Status === targetStatus) {
-    return `Port 2: ${parsed.port2Status}`
-  }
-  if (parsed.port1Status === targetStatus) {
-    return `Port 1: ${parsed.port1Status}`
-  }
-  if (parsed.port2Status === targetStatus) {
-    return `Port 2: ${parsed.port2Status}`
-  }
-  return targetStatus
-}
 
 async function saveSnapshot(cpId, parsed) {
   const { error } = await upsertRow(
@@ -190,7 +142,6 @@ async function cleanupExpiredTasks() {
 async function processTask(task) {
   const {
     task_id,
-    subscription_id,
     cp_id,
     cupr_id,
     target_port,
@@ -237,8 +188,7 @@ async function processTask(task) {
 
   if (targetReached) {
     console.log(`  Target status "${target_status}" reached!`)
-    const portStatus = getReachedPortStatus(parsed, target_port, target_status)
-    await sendPushNotification(subscription_id, parsed.cpName, portStatus)
+    await sendPushNotification(String(cp_id), target_port)
     await completeTask(task_id)
     return
   }
@@ -250,10 +200,9 @@ async function processTask(task) {
 }
 
 async function processExpiredTask(task) {
-  const { task_id, subscription_id, target_port } = task
+  const { task_id } = task
 
   console.log(`Processing expired task ${task_id}`)
-  await sendExpirationNotification(subscription_id, target_port)
   await completeTask(task_id)
 }
 
